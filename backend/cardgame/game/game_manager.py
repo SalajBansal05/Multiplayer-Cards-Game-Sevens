@@ -15,19 +15,21 @@ class GameManager:
             "clubs": {"low": None, "high": None},
         }
 
+        self.started = False
+        self.winner = None
         self.current_turn = None
 
     def add_player(self):
+        if self.started:
+            return None
         player_id = None
         for i in range(1,5):
             pid = f"Player {i}"
             if pid not in self.players:
                 self.players.append(pid)
                 player_id = pid
-                
-        # if len(self.players) == 4 and not self.hands:
-        #     self.hands, self.current_turn = deal_cards(self.players)
-        
+                break
+                        
         if len(self.players) == 4 and not self.started:
             self.hands, self.current_turn = deal_cards(self.players)
             self.started = True
@@ -40,6 +42,9 @@ class GameManager:
             self.players.remove(player_id)
 
     def play_card(self, player_id, card):
+        
+        if self.winner:
+            return False
         
         if player_id not in self.players:
             return False
@@ -93,6 +98,9 @@ class GameManager:
 
         # remove card only after valid move
         self.hands[player_id].remove(card)
+        if len(self.hands[player_id]) == 0:
+            self.winner = player_id
+            self.started = False
 
         # move to next player
         players = self.players
@@ -112,6 +120,30 @@ class GameManager:
         self.current_turn = players[(i + 1) % len(players)]
 
         return True
+    
+    def get_scores(self):
+        rank_values = {
+            "A": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 6, 
+            "7": 7, "8": 8, "9": 9, "10": 10, "J": 11, "Q": 12, "K": 13
+        }
+        scores = {}
+        for player_id, hand in self.hands.items():
+            # Score is sum of ranks; rank is card[:-1]
+            score = sum(rank_values.get(card[:-1], 0) for card in hand)
+            scores[player_id] = score
+        return scores
 
+    def reset_game(self):
+        self.piles = {
+            "hearts": {"low": None, "high": None},
+            "spades": {"low": None, "high": None},
+            "diamonds": {"low": None, "high": None},
+            "clubs": {"low": None, "high": None},
+        }
+
+        self.hands, self.current_turn = deal_cards(self.players)
+
+        self.winner = None
+        self.started = True
 
 game_manager = GameManager()

@@ -1,0 +1,171 @@
+.App {
+  text-align: center;
+}
+
+.table{
+  display:grid;
+  grid-template-columns: repeat(2,200px);
+  gap:40px;
+  justify-content:center;
+  margin-top:40px;
+}
+
+.pile{
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+
+.dots{
+  font-size:24px;
+  font-weight:bold;
+}
+
+.table {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr); 
+  gap: 20px;
+  width: 90vw;
+  max-width: 450px; 
+  margin: 20px auto; 
+  justify-items: center; 
+}
+
+.pile{
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+
+.dots{
+  font-size:24px;
+  font-weight:bold;
+}
+
+/* Container for the whole game area */
+.table-layout {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  max-width: 100vw;
+  overflow-x: hidden;
+}
+
+.middle-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
+@media (max-width: 600px) {
+  .middle-row {
+    flex-direction: column; 
+    gap: 10px;
+    width: 100%;
+    align-items: center; /* This ensures children don't stretch to 100% width */
+  }
+
+  .player.left, .player.right, .player.top {
+    margin: 5px 0; /* Uniform spacing */
+    width: 140px;  /* Force a consistent width for all opponent boxes */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    box-sizing: border-box;
+  }
+
+  /* Keep your ordering logic as is */
+  .player.top { order: 1; }
+  .table-center { order: 2; }
+  .player.left { order: 3; }
+  .player.right { order: 4; }
+  .player.bottom { order: 5; }
+}
+
+/* Ensure the 'active' border doesn't change the box size */
+.player {
+  padding: 8px;
+  border: 2px solid transparent; 
+  border-radius: 8px;
+}
+
+.active {
+  border: 2px solid green !important;
+  background-color: rgba(0, 128, 0, 0.05);
+  /* box-shadow: 0 0 10px rgba(46, 204, 113, 0.3); */
+}
+
+.table-center{
+  margin:20px;
+}
+
+.player{
+  text-align:center;
+  margin:10px;
+}
+
+.left{
+  margin-right:40px;
+}
+
+.right{
+  margin-left:40px;
+}
+
+.player{
+  padding:6px;
+}
+
+.active{
+  border:3px solid green;
+  font-weight:bold;
+}
+
+.rules{
+  margin: 40px;
+  padding: 10px;
+  padding-top: 0;
+  border: 2px solid black;
+}
+
+.hand {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-wrap: wrap;
+  max-width: 95vw; 
+  margin: 20px auto;
+  gap: 5px; 
+}
+
+.card-wrapper {
+  transition: transform 0.2s;
+}
+
+
+.card-wrapper:hover{
+  transform:translateY(-15px) scale(1.1);
+}
+
+.winner-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0,0,0,0.9);
+  z-index: 9999; 
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.winner-box{
+  background:white;
+  padding:40px;
+  border-radius:12px;
+  font-size:28px;
+  text-align:center;
+}
