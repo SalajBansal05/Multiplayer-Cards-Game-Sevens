@@ -11,12 +11,14 @@ Players can connect from multiple devices on the same network and play interacti
 - Real-time multiplayer gameplay using **WebSockets**
 - **4-player card game engine**
 - Turn-based system with rule validation
-- **Pass turn** functionality
+- **Pass turn** functionality, which is enabled only when you are out of moves
 - Highlighting of **valid playable cards**
 - Responsive UI that works on **desktop and mobile**
 - Visual card display using SVG cards
 - Dynamic table layout showing players around the table
 - Local multiplayer over WiFi
+- Winner display with points of each player once game ends
+- Play again option without restarting the server
 
 ---
 
@@ -96,8 +98,6 @@ All devices must be connected to the **same WiFi network**.
 Planned enhancements:
 
 - Fan-style card display for a more realistic hand
-- Win detection when a player runs out of cards
-- Rematch system without restarting the server
 - Card animations when playing to the table
 - Persistent game rooms
 - Online multiplayer (not limited to LAN)
