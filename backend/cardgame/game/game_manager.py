@@ -6,6 +6,7 @@ class GameManager:
     def __init__(self):
 
         self.players = []
+        self.connected = {}
         self.hands = {}
 
         self.piles = {
@@ -28,6 +29,7 @@ class GameManager:
             if pid not in self.players:
                 self.players.append(pid)
                 player_id = pid
+                self.connected[player_id] = True
                 break
                         
         if len(self.players) == 4 and not self.started:
@@ -39,7 +41,7 @@ class GameManager:
     def remove_player(self, player_id):
 
         if player_id in self.players:
-            self.players.remove(player_id)
+            self.connected[player_id] = False
 
     def play_card(self, player_id, card):
         
@@ -113,6 +115,9 @@ class GameManager:
 
         if player_id != self.current_turn:
             return False
+        
+        if all(p["low"] is None for p in self.piles.values()):
+            return False
 
         players = self.players
         i = players.index(player_id)
@@ -142,7 +147,7 @@ class GameManager:
         }
 
         self.hands, self.current_turn = deal_cards(self.players)
-
+        
         self.winner = None
         self.started = True
 
