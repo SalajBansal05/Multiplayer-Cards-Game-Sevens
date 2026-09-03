@@ -2,7 +2,7 @@ from channels.generic.websocket import AsyncWebsocketConsumer
 import json
 
 from .game_manager import game_manager
-
+from urllib.parse import parse_qs
 
 class GameConsumer(AsyncWebsocketConsumer):
 
@@ -10,20 +10,43 @@ class GameConsumer(AsyncWebsocketConsumer):
 
         self.room = "game_room"
 
+        query_params = parse_qs(
+            self.scope["query_string"].decode()
+        )
+        token = query_params.get("token", [None])[0]
+        if token is None:
+            await self.accept()
+
+            await self.send(
+                text_data=json.dumps({
+                    "error": "Player identity is missing."
+                })
+            )
+
+            await self.close()
+            return
+
+        self.player_id = game_manager.add_player(token)
+        if self.player_id is None:
+            await self.accept()
+
+            await self.send(
+                text_data=json.dumps({
+                    "error": "Game is full or already in progress."
+                })
+            )
+
+            await self.close()
+            return
+
         await self.channel_layer.group_add(
             self.room,
             self.channel_name
         )
-
         await self.accept()
-
-        self.player_id = game_manager.add_player()
-
         await self.send_state()
 
-        # if game just started send update to everyone
         if len(game_manager.players) == 4:
-
             await self.channel_layer.group_send(
                 self.room,
                 {"type": "game_update"}
@@ -31,7 +54,8 @@ class GameConsumer(AsyncWebsocketConsumer):
 
     async def disconnect(self, close_code):
 
-        game_manager.remove_player(self.player_id)
+        if hasattr(self, "player_id"):
+            game_manager.remove_player(self.player_id)
 
         await self.channel_layer.group_discard(
             self.room,

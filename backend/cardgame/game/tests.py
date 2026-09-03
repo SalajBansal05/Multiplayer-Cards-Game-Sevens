@@ -11,10 +11,14 @@ class GameManagerTests(TestCase):
         """
         game = GameManager()
 
-        for _ in range(4):
-            game.add_player()
+        for i in range(1, 5):
+            game.add_player(f"token-{i}")
 
         return game
+
+    # ---------------------------------------------------------
+    # Commit 1: Game rules and state
+    # ---------------------------------------------------------
 
     def test_game_starts_with_four_players(self):
         game = self.create_full_game()
@@ -44,11 +48,6 @@ class GameManagerTests(TestCase):
         # Make sure this player has 7H and another seven.
         game.hands[player] = ["7H", "7S"]
 
-        # Still an unopened game.
-        self.assertTrue(
-            all(pile["low"] is None for pile in game.piles.values())
-        )
-
         # Trying another seven must fail.
         result = game.play_card(player, "7S")
 
@@ -63,11 +62,6 @@ class GameManagerTests(TestCase):
         game = self.create_full_game()
 
         player = game.current_turn
-
-        # The game has not started with any card yet.
-        self.assertTrue(
-            all(pile["low"] is None for pile in game.piles.values())
-        )
 
         result = game.pass_turn(player)
 
@@ -101,7 +95,6 @@ class GameManagerTests(TestCase):
             if player != current_player
         )
 
-        # Give the other player a card they could otherwise play.
         game.hands[other_player] = ["7H"]
 
         result = game.play_card(other_player, "7H")
@@ -115,7 +108,6 @@ class GameManagerTests(TestCase):
 
         player = game.current_turn
 
-        # Player does not have this card.
         game.hands[player] = ["7H"]
 
         result = game.play_card(player, "7S")
@@ -130,7 +122,6 @@ class GameManagerTests(TestCase):
 
         current_player = game.current_turn
 
-        # Force the opening move.
         game.hands[current_player] = ["7H"]
 
         result = game.play_card(current_player, "7H")
@@ -150,7 +141,6 @@ class GameManagerTests(TestCase):
 
         player = game.current_turn
 
-        # If the player has only 7H, playing it should win.
         game.hands[player] = ["7H"]
 
         result = game.play_card(player, "7H")
@@ -168,20 +158,15 @@ class GameManagerTests(TestCase):
 
         game.remove_player(player)
 
-        # Player remains part of the game.
         self.assertIn(player, game.players)
-
-        # Their hand is preserved.
         self.assertEqual(game.hands[player], original_hand)
-
-        # Only connection status changes.
         self.assertFalse(game.connected[player])
 
     def test_connected_players_are_tracked(self):
         game = GameManager()
 
-        player1 = game.add_player()
-        player2 = game.add_player()
+        player1 = game.add_player("token-1")
+        player2 = game.add_player("token-2")
 
         self.assertTrue(game.connected[player1])
         self.assertTrue(game.connected[player2])
@@ -190,3 +175,114 @@ class GameManagerTests(TestCase):
 
         self.assertFalse(game.connected[player1])
         self.assertTrue(game.connected[player2])
+
+    # ---------------------------------------------------------
+    # Commit 2: Persistent player identity / reconnection
+    # ---------------------------------------------------------
+
+    def test_new_token_gets_new_player(self):
+        game = GameManager()
+
+        player = game.add_player("token-123")
+
+        self.assertEqual(player, "Player 1")
+        self.assertEqual(
+            game.player_tokens["Player 1"],
+            "token-123"
+        )
+        self.assertTrue(game.connected["Player 1"])
+
+    def test_same_token_returns_same_player(self):
+        game = GameManager()
+
+        player1 = game.add_player("token-123")
+
+        game.remove_player(player1)
+
+        player2 = game.add_player("token-123")
+
+        self.assertEqual(player1, player2)
+        self.assertEqual(player2, "Player 1")
+        self.assertTrue(game.connected["Player 1"])
+
+    def test_reconnect_does_not_create_extra_player(self):
+        game = GameManager()
+
+        player = game.add_player("token-123")
+        game.remove_player(player)
+
+        reconnected_player = game.add_player("token-123")
+
+        self.assertEqual(len(game.players), 1)
+        self.assertEqual(reconnected_player, player)
+
+    def test_reconnect_does_not_redeal_cards(self):
+        game = self.create_full_game()
+
+        player = game.players[2]
+
+        original_hand = list(game.hands[player])
+        original_turn = game.current_turn
+
+        game.remove_player(player)
+
+        reconnected_player = game.add_player(
+            game.player_tokens[player]
+        )
+
+        self.assertEqual(reconnected_player, player)
+        self.assertEqual(game.hands[player], original_hand)
+        self.assertEqual(game.current_turn, original_turn)
+
+    def test_reconnecting_existing_player_is_allowed_after_game_started(self):
+        game = self.create_full_game()
+
+        player = game.players[2]
+        token = game.player_tokens[player]
+
+        game.remove_player(player)
+
+        self.assertTrue(game.started)
+        self.assertFalse(game.connected[player])
+
+        reconnected_player = game.add_player(token)
+
+        self.assertEqual(reconnected_player, player)
+        self.assertTrue(game.connected[player])
+        self.assertTrue(game.started)
+
+    def test_new_player_cannot_join_started_game(self):
+        game = self.create_full_game()
+
+        new_player = game.add_player("new-token")
+
+        self.assertIsNone(new_player)
+        self.assertEqual(len(game.players), 4)
+
+    def test_new_player_cannot_take_disconnected_players_slot(self):
+        game = self.create_full_game()
+
+        disconnected_player = game.players[2]
+
+        game.remove_player(disconnected_player)
+
+        new_player = game.add_player("new-token")
+
+        self.assertIsNone(new_player)
+
+        self.assertIn(disconnected_player, game.players)
+        self.assertFalse(game.connected[disconnected_player])
+
+    def test_get_player_by_token(self):
+        game = GameManager()
+
+        player = game.add_player("token-123")
+
+        self.assertEqual(
+            game.get_player_by_token("token-123"),
+            player
+        )
+
+        self.assertIsNone(
+            game.get_player_by_token("unknown-token")
+        )

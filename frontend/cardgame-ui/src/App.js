@@ -3,6 +3,38 @@ import {useEffect, useState} from "react"
 import Hand from './components/Hand';
 import Table from './components/Table';
 
+function generateUUID() {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+
+  // UUID v4
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+
+  return [...bytes]
+    .map((byte, index) => {
+      const hex = byte.toString(16).padStart(2, "0");
+
+      if (index === 4 || index === 6 || index === 8 || index === 10) {
+        return "-" + hex;
+      }
+
+      return hex;
+    })
+    .join("");
+}
+
+function getPlayerToken() {
+  let token = localStorage.getItem("player_token");
+
+  if (!token) {
+    token = generateUUID();
+    localStorage.setItem("player_token", token);
+  }
+
+  return token;
+}
+
 
 function App() {
   const [socket, setSocket] = useState(null);
@@ -49,7 +81,11 @@ function App() {
   }
 
   useEffect(() => {
-  const ws = new WebSocket(`ws://${window.location.hostname}:8000/ws/game/`);
+  const playerToken = getPlayerToken();
+
+  const ws = new WebSocket(
+    `ws://${window.location.hostname}:8000/ws/game/?token=${playerToken}`
+  );
   
   ws.onopen = () => {
     console.log("Connected to a server.");
@@ -58,6 +94,11 @@ function App() {
   ws.onmessage = (event) => {
 
     const data = JSON.parse(event.data);
+
+    if (data.error) {
+      alert(data.error);
+      return;
+    }
 
     if (data.piles) setPiles({...data.piles});
     if (data.hand) setHand(data.hand);

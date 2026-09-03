@@ -7,6 +7,7 @@ class GameManager:
 
         self.players = []
         self.connected = {}
+        self.player_tokens = {} # self.player_tokens[player_id] = token
         self.hands = {}
 
         self.piles = {
@@ -19,16 +20,30 @@ class GameManager:
         self.started = False
         self.winner = None
         self.current_turn = None
+        
+    def get_player_by_token(self, token):
+        for player_id, player_token in self.player_tokens.items():
+            if player_token == token:
+                return player_id
+        return None
 
-    def add_player(self):
+    def add_player(self, token):
+        
+        player_id = self.get_player_by_token(token)
+        if player_id is not None:
+            self.connected[player_id] = True
+            return player_id
+        
         if self.started:
             return None
+        
         player_id = None
         for i in range(1,5):
             pid = f"Player {i}"
             if pid not in self.players:
                 self.players.append(pid)
                 player_id = pid
+                self.player_tokens[player_id] = token
                 self.connected[player_id] = True
                 break
                         
@@ -147,7 +162,7 @@ class GameManager:
         }
 
         self.hands, self.current_turn = deal_cards(self.players)
-        
+
         self.winner = None
         self.started = True
 
