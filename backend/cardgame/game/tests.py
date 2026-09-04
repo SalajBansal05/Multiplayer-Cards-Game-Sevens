@@ -287,6 +287,427 @@ class GameManagerTests(TestCase):
             game.get_player_by_token("unknown-token")
         )
         
+    # ---------------------------------------------------------
+    # Commit 4: Disconnect Handling and Game Lifecycle
+    # ---------------------------------------------------------
+    
+    def test_disconnected_current_player_pauses_game(self):
+        game = self.create_full_game()
+
+        current_player = game.current_turn
+
+        game.remove_player(current_player)
+
+        result = game.check_for_disconnected_turn()
+
+        self.assertTrue(result)
+        self.assertTrue(game.paused)
+        self.assertEqual(
+            game.disconnected_player,
+            current_player
+        )
+
+    def test_disconnected_non_current_player_does_not_pause_game(self):
+        game = self.create_full_game()
+
+        current_player = game.current_turn
+
+        other_player = next(
+            player for player in game.players
+            if player != current_player
+        )
+
+        game.remove_player(other_player)
+
+        result = game.check_for_disconnected_turn()
+
+        self.assertFalse(result)
+        self.assertFalse(game.paused)
+        self.assertIsNone(game.disconnected_player)
+
+    def test_game_pauses_when_turn_reaches_disconnected_player(self):
+        game = self.create_full_game()
+
+        current_player = game.current_turn
+
+        next_index = (
+            game.players.index(current_player) + 1
+        ) % len(game.players)
+
+        next_player = game.players[next_index]
+
+        game.remove_player(next_player)
+
+        # Keep an extra card so the current player does not win.
+        game.hands[current_player] = ["7H", "8H"]
+
+        result = game.play_card(
+            current_player,
+            "7H"
+        )
+
+        self.assertTrue(result)
+        self.assertEqual(
+            game.current_turn,
+            next_player
+        )
+
+        self.assertTrue(game.paused)
+        self.assertEqual(
+            game.disconnected_player,
+            next_player
+        )
+
+    def test_game_pauses_after_multiple_turns_when_player_is_disconnected(self):
+        game = self.create_full_game()
+
+        p1 = game.current_turn
+
+        p2_index = (
+            game.players.index(p1) + 1
+        ) % len(game.players)
+
+        p2 = game.players[p2_index]
+
+        p3_index = (
+            game.players.index(p2) + 1
+        ) % len(game.players)
+
+        p3 = game.players[p3_index]
+
+        # P3 disconnects while it is P1's turn.
+        game.remove_player(p3)
+
+        # P1 must not win after playing 7H.
+        game.hands[p1] = ["7H", "8H"]
+
+        result = game.play_card(p1, "7H")
+
+        self.assertTrue(result)
+        self.assertEqual(game.current_turn, p2)
+        self.assertFalse(game.paused)
+
+        # P2 must also not win.
+        game.hands[p2] = ["7S", "8S"]
+
+        result = game.play_card(p2, "7S")
+
+        self.assertTrue(result)
+        self.assertEqual(game.current_turn, p3)
+
+        # P3 is disconnected, so the game must now pause.
+        self.assertTrue(game.paused)
+        self.assertEqual(
+            game.disconnected_player,
+            p3
+        )
+
+    def test_reconnecting_blocking_player_can_resume_game(self):
+        game = self.create_full_game()
+
+        player = game.current_turn
+
+        game.remove_player(player)
+        game.check_for_disconnected_turn()
+
+        self.assertTrue(game.paused)
+
+        result = game.add_player(
+            game.player_tokens[player]
+        )
+
+        self.assertEqual(result, player)
+        self.assertTrue(game.connected[player])
+
+        resumed = game.resume_after_reconnect(player)
+
+        self.assertTrue(resumed)
+        self.assertFalse(game.paused)
+        self.assertIsNone(game.disconnected_player)
+        self.assertFalse(
+            game.disconnect_timeout_expired
+        )
+
+    def test_non_blocking_reconnect_does_not_resume_game(self):
+        game = self.create_full_game()
+
+        current_player = game.current_turn
+
+        other_player = next(
+            player for player in game.players
+            if player != current_player
+        )
+
+        game.remove_player(other_player)
+
+        result = game.add_player(
+            game.player_tokens[other_player]
+        )
+
+        self.assertEqual(result, other_player)
+        self.assertFalse(game.paused)
+        self.assertIsNone(game.disconnected_player)
+
+    def test_paused_game_rejects_play(self):
+        game = self.create_full_game()
+
+        player = game.current_turn
+
+        game.remove_player(player)
+        game.check_for_disconnected_turn()
+
+        self.assertTrue(game.paused)
+
+        game.hands[player] = ["7H"]
+
+        result = game.play_card(player, "7H")
+
+        self.assertFalse(result)
+
+    def test_paused_game_rejects_pass(self):
+        game = self.create_full_game()
+
+        player = game.current_turn
+
+        game.remove_player(player)
+        game.check_for_disconnected_turn()
+
+        self.assertTrue(game.paused)
+
+        result = game.pass_turn(player)
+
+        self.assertFalse(result)
+        
+    def test_check_for_disconnected_turn_sets_timeout_flag_false(self):
+        game = self.create_full_game()
+
+        player = game.current_turn
+
+        game.remove_player(player)
+
+        result = game.check_for_disconnected_turn()
+
+        self.assertTrue(result)
+        self.assertTrue(game.paused)
+        self.assertEqual(
+            game.disconnected_player,
+            player
+        )
+        self.assertFalse(
+            game.disconnect_timeout_expired
+        )
+
+
+    def test_reconnect_clears_timeout_state(self):
+        game = self.create_full_game()
+
+        player = game.current_turn
+
+        game.remove_player(player)
+        game.check_for_disconnected_turn()
+
+        self.assertTrue(game.paused)
+
+        game.disconnect_timeout_expired = True
+
+        resumed = game.resume_after_reconnect(player)
+
+        self.assertTrue(resumed)
+        self.assertFalse(game.paused)
+        self.assertIsNone(game.disconnected_player)
+        self.assertFalse(
+            game.disconnect_timeout_expired
+        )
+
+
+    def test_reset_game_clears_disconnect_state(self):
+        game = self.create_full_game()
+
+        player = game.current_turn
+
+        game.remove_player(player)
+        game.check_for_disconnected_turn()
+
+        game.disconnect_timeout_expired = True
+
+        game.reset_game()
+
+        self.assertFalse(game.paused)
+        self.assertIsNone(game.disconnected_player)
+        self.assertFalse(
+            game.disconnect_timeout_expired
+        )
+    
+    def test_game_cannot_end_before_timeout(self):
+        game = self.create_full_game()
+
+        player = game.current_turn
+
+        game.remove_player(player)
+        game.check_for_disconnected_turn()
+
+        self.assertTrue(game.paused)
+        self.assertFalse(game.disconnect_timeout_expired)
+
+        result = game.end_game()
+
+        self.assertFalse(result)
+        self.assertTrue(game.paused)
+        self.assertTrue(game.started)
+
+
+    def test_game_can_end_after_timeout(self):
+        game = self.create_full_game()
+
+        player = game.current_turn
+
+        game.remove_player(player)
+        game.check_for_disconnected_turn()
+
+        game.disconnect_timeout_expired = True
+
+        result = game.end_game()
+
+        self.assertTrue(result)
+        self.assertFalse(game.started)
+        self.assertFalse(game.paused)
+        self.assertTrue(game.game_ended)
+        self.assertIsNone(game.disconnected_player)
+
+
+    def test_reset_game_clears_game_ended_state(self):
+        game = self.create_full_game()
+
+        player = game.current_turn
+
+        game.remove_player(player)
+        game.check_for_disconnected_turn()
+
+        game.disconnect_timeout_expired = True
+        game.end_game()
+
+        self.assertTrue(game.game_ended)
+
+        game.reset_game()
+
+        self.assertFalse(game.game_ended)
+        self.assertTrue(game.started)
+        self.assertFalse(game.paused)
+        self.assertIsNone(game.disconnected_player)
+        self.assertFalse(
+            game.disconnect_timeout_expired
+        )
+        
+    def test_timeout_removes_disconnected_player(self):
+        game = self.create_full_game()
+
+        player = game.current_turn
+
+        game.remove_player(player)
+        game.check_for_disconnected_turn()
+
+        self.assertTrue(game.paused)
+
+        result = game.handle_disconnect_timeout()
+
+        self.assertTrue(result)
+
+        self.assertNotIn(player, game.players)
+        self.assertNotIn(player, game.connected)
+        self.assertNotIn(player, game.player_tokens)
+        self.assertNotIn(player, game.hands)
+
+        self.assertTrue(game.disconnect_timeout_expired)
+        self.assertTrue(game.paused)
+        self.assertEqual(
+            game.disconnected_player,
+            player
+        )
+        
+    def test_timed_out_player_cannot_reconnect_until_game_ends(self):
+        game = self.create_full_game()
+
+        player = game.current_turn
+        token = game.player_tokens[player]
+
+        game.remove_player(player)
+        game.check_for_disconnected_turn()
+
+        game.handle_disconnect_timeout()
+
+        # The player has been removed from the current game.
+        self.assertNotIn(player, game.players)
+        self.assertNotIn(player, game.player_tokens)
+
+        # Game is still active/paused, so they cannot rejoin yet.
+        result = game.add_player(token)
+
+        self.assertIsNone(result)
+
+        # End the game.
+        game.end_game()
+
+        # Now they can join the room again.
+        result = game.add_player(token)
+
+        self.assertIsNotNone(result)
+        
+    def test_final_scores_are_preserved_after_player_leaves(self):
+        game = self.create_full_game()
+
+        scores_before = game.get_scores()
+
+        game.winner = game.players[0]
+        game.started = False
+        game.final_scores = game.get_scores()
+
+        player = game.players[3]
+
+        game.players.remove(player)
+        game.connected.pop(player, None)
+        game.player_tokens.pop(player, None)
+        game.hands.pop(player, None)
+
+        scores_after = game.get_scores()
+
+        self.assertEqual(
+            scores_after,
+            scores_before
+        )
+        
+    def test_timed_out_player_can_rejoin_ended_game_without_starting_it(self):
+        game = self.create_full_game()
+
+        player = game.current_turn
+        token = game.player_tokens[player]
+
+        # Disconnect and time out the current player.
+        game.remove_player(player)
+        game.check_for_disconnected_turn()
+
+        self.assertTrue(game.paused)
+
+        game.handle_disconnect_timeout()
+
+        # End the game.
+        game.disconnect_timeout_expired = True
+        result = game.end_game()
+
+        self.assertTrue(result)
+        self.assertTrue(game.game_ended)
+        self.assertFalse(game.started)
+
+        # Timed-out player rejoins the room.
+        result = game.add_player(token)
+
+        self.assertIsNotNone(result)
+
+        # Rejoining as the fourth player must NOT
+        # automatically start another game.
+        self.assertFalse(game.started)
+        self.assertTrue(game.game_ended)
+        self.assertEqual(len(game.players), 4)
+        
         
 # ---------------------------------------------------------
 # Commit 3: Multiple Player Rooms (RoomManager)

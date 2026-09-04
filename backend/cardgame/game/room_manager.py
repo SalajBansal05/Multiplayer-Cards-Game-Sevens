@@ -13,7 +13,8 @@ class GameRoom:
 
         # The player who creates the room automatically becomes the host.
         self.host_player = self.game_manager.add_player(host_token)
-
+        self.disconnect_task = None
+        
     @property
     def group_name(self):
         return f"game_room_{self.room_id}"

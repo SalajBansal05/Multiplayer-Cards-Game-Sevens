@@ -4,7 +4,60 @@ import json
 from .room_manager import room_manager
 from urllib.parse import parse_qs
 
+import asyncio
+
 class GameConsumer(AsyncWebsocketConsumer):
+    
+    async def start_disconnect_timer(self):
+
+        room = self.game_room
+        game_manager = room.game_manager
+
+        if not game_manager.paused:
+            return
+
+        if room.disconnect_task is not None:
+            return
+
+        player_id = game_manager.disconnected_player
+
+        room.disconnect_task = asyncio.create_task(
+            self.disconnect_timeout_task(player_id)
+        )
+        
+    async def disconnect_timeout_task(self, player_id):
+
+        try:
+            await asyncio.sleep(60)
+            
+            game_manager = self.game_room.game_manager
+
+            if (game_manager.paused and game_manager.disconnected_player == player_id):
+
+                timed_out = game_manager.handle_disconnect_timeout()
+
+                if timed_out:
+                    if self.game_room.host_player == player_id:
+                        remaining_players = game_manager.players
+
+                        if remaining_players:
+                            new_host = remaining_players[0]
+
+                            self.game_room.host_player = new_host
+                            self.game_room.host_token = (
+                                game_manager.player_tokens[new_host]
+                            )
+
+                    await self.channel_layer.group_send(
+                        self.room,
+                        {"type": "game_update"}
+                    )
+
+        except asyncio.CancelledError:
+            pass
+
+        finally:
+            self.game_room.disconnect_task = None
 
     async def connect(self):
 
@@ -67,13 +120,27 @@ class GameConsumer(AsyncWebsocketConsumer):
 
             await self.close()
             return
-
+        
+            
         await self.channel_layer.group_add(
             self.room,
             self.channel_name
         )
 
         await self.accept()
+
+        game_manager = self.game_room.game_manager
+
+        if game_manager.resume_after_reconnect(self.player_id):
+
+            if self.game_room.disconnect_task is not None:
+                self.game_room.disconnect_task.cancel()
+                self.game_room.disconnect_task = None
+
+            await self.channel_layer.group_send(
+                self.room,
+                {"type": "game_update"}
+            )
 
         await self.send_state()
 
@@ -87,12 +154,20 @@ class GameConsumer(AsyncWebsocketConsumer):
     async def disconnect(self, close_code):
 
         if hasattr(self, "player_id"):
+
             game_manager = self.game_room.game_manager
 
-            # Only mark as disconnected if the player
-            # is still part of the room.
             if self.player_id in game_manager.players:
                 game_manager.remove_player(self.player_id)
+
+                if game_manager.check_for_disconnected_turn():
+
+                    await self.start_disconnect_timer()
+
+                    await self.channel_layer.group_send(
+                        self.room,
+                        {"type": "game_update"}
+                    )
 
         if hasattr(self, "room"):
             await self.channel_layer.group_discard(
@@ -113,6 +188,9 @@ class GameConsumer(AsyncWebsocketConsumer):
                 self.player_id,
                 card
             ):
+                if game_manager.paused:
+                    await self.start_disconnect_timer()
+
                 await self.channel_layer.group_send(
                     self.room,
                     {"type": "game_update"}
@@ -123,6 +201,9 @@ class GameConsumer(AsyncWebsocketConsumer):
             if game_manager.pass_turn(
                 self.player_id
             ):
+                if game_manager.paused:
+                    await self.start_disconnect_timer()
+
                 await self.channel_layer.group_send(
                     self.room,
                     {"type": "game_update"}
@@ -155,20 +236,42 @@ class GameConsumer(AsyncWebsocketConsumer):
                 game_manager.player_tokens[self.player_id]
             )
 
-            # Tell the remaining players that the room changed.
+            # This client is leaving, so remove its channel
+            # before broadcasting the update.
+            await self.channel_layer.group_discard(
+                self.room,
+                self.channel_name
+            )
+
+            # Notify only the players who remain in the room.
             if room is not None:
                 await self.channel_layer.group_send(
                     self.room,
                     {"type": "game_update"}
                 )
 
-            # This client is no longer part of the room.
-            await self.channel_layer.group_discard(
-                self.room,
-                self.channel_name
-            )
-
             await self.close()
+            return
+        
+        if data["action"] == "end_game":
+
+            game_manager = self.game_room.game_manager
+
+            if self.player_id != self.game_room.host_player:
+                await self.send(
+                    text_data=json.dumps({
+                        "error": "Only the host can end the game."
+                    })
+                )
+                return
+
+            if game_manager.end_game():
+
+                await self.channel_layer.group_send(
+                    self.room,
+                    {"type": "game_update"}
+                )
+
             return
 
     async def game_update(self, event):
@@ -190,6 +293,7 @@ class GameConsumer(AsyncWebsocketConsumer):
                 "room_id": self.room_id,
                 "host": self.game_room.host_player,
                 "started": game_manager.started,
+                "game_ended": game_manager.game_ended,
                 "piles": game_manager.piles,
                 "hand": game_manager.hands.get(
                     self.player_id,
@@ -200,6 +304,9 @@ class GameConsumer(AsyncWebsocketConsumer):
                 "players": game_manager.players,
                 "counts": counts,
                 "scores": scores,
-                "winner": game_manager.winner
+                "winner": game_manager.winner,
+                "paused": game_manager.paused,
+                "disconnected_player": game_manager.disconnected_player,
+                "disconnect_timeout_expired": game_manager.disconnect_timeout_expired,
             })
         )

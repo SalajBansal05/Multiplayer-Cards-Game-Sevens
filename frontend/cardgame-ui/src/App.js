@@ -52,6 +52,11 @@ function App() {
   const [error, setError] = useState("");
   const [gameStarted, setGameStarted] = useState(false);
   const [host, setHost] = useState(null);
+
+  const [paused, setPaused] = useState(false);
+  const [disconnectedPlayer, setDisconnectedPlayer] = useState(null);
+  const [timeoutExpired, setTimeoutExpired] = useState(false);
+  const [gameEnded, setGameEnded] = useState(false);
   
   const [hand, setHand] = useState([]);
   
@@ -143,6 +148,16 @@ function App() {
     setScreen("lobby");
   }
 
+  function endGame() {
+    if (!socket) return;
+
+    socket.send(
+      JSON.stringify({
+        action: "end_game"
+      })
+    );
+  }
+
   function passTurn(){
     if (!socket) return;
   
@@ -196,6 +211,21 @@ function App() {
         setScreen("lobby");
         return;
       }
+
+      if ("paused" in data) setPaused(data.paused);
+
+      if ("disconnected_player" in data) {
+        setDisconnectedPlayer(data.disconnected_player);
+      }
+
+      if ("disconnect_timeout_expired" in data) {
+        setTimeoutExpired(data.disconnect_timeout_expired);
+      }
+
+      if ("game_ended" in data) {
+        setGameEnded(data.game_ended);
+      }
+
       if (data.room_id) setRoomCode(data.room_id);
       if (data.started !== undefined) setGameStarted(data.started);
       if (data.host) setHost(data.host);
@@ -340,60 +370,172 @@ function App() {
   }
 
   return (
-
     <>
       <div className="table-layout">
-        <h1>Card Game - Sevens</h1>
-        {winner && (
-          <div className="winner-overlay">
-            <div className="winner-box">
-              <h2>{winner} wins!</h2>
-              <hr />
-              <div className="score-list">
-                <h3>Final Scores:</h3>
-                {Object.entries(scores).map(([pId, score]) => (
-                  <p key={pId} style={{ color: pId === winner ? 'green' : 'black' }}>
-                    {pId}: <strong>{score}</strong>
-                  </p>
-                ))}
-              </div>
-              <button onClick={rematch} style={{ marginTop: '20px' }}>Play Again</button>
-            </div>
+
+        {/* =====================================================
+            HEADER / ROOM INFORMATION
+            ===================================================== */}
+        <header className="game-header">
+          <h1>Card Game - Sevens</h1>
+
+          <div className="room-info">
+            <p>
+              <strong>Room Code:</strong> {roomCode}
+            </p>
+
+            <p>
+              <strong>Host:</strong> {host}
+            </p>
+
+            <p>
+              <strong>You are:</strong> {playerId}
+            </p>
           </div>
-        )}
-        <div>
-          <strong>Room Code:</strong> {roomCode}
-        </div>
+        </header>
 
-        <div>
-          <strong>Host:</strong> {host}
-        </div>
 
-        <div>
-          <strong>You are:</strong> {playerId}
-        </div>
+        {/* =====================================================
+            GAME / ROOM STATUS
+            ===================================================== */}
 
-        {!gameStarted && (
-          <div>
+        {!gameStarted && !gameEnded && !winner && (
+          <div className="game-status">
             <h2>Waiting for players</h2>
             <p>
               {players.length} / 4 players connected
             </p>
           </div>
         )}
-        {(!gameStarted || winner) && (
-          <button onClick={leaveGame}>
-            Leave Game
-          </button>
+
+        {paused && (
+          <div className="game-status">
+            <h2>Game Paused</h2>
+
+            <p>
+              {disconnectedPlayer} has disconnected.
+            </p>
+
+            {!timeoutExpired && (
+              <p>Waiting for reconnection...</p>
+            )}
+
+            {timeoutExpired && (
+              <p>
+                {disconnectedPlayer} did not reconnect in time.
+              </p>
+            )}
+          </div>
         )}
 
-        <div className={currentTurn === topPlayer ? "player top active" : "player top"}>
+        {paused && timeoutExpired && playerId === host && (
+          <div className="game-status">
+            <button onClick={endGame}>
+              End Game
+            </button>
+          </div>
+        )}
+
+
+        {/* =====================================================
+            GAME ENDED
+            ===================================================== */}
+
+        {gameEnded && (
+          <div className="winner-overlay">
+            <div className="winner-box">
+              <h2>Game Ended</h2>
+
+              <p>
+                The host ended the game because a player
+                did not reconnect.
+              </p>
+
+              {playerId === host && (
+                <button onClick={rematch}>
+                  Play Again
+                </button>
+              )}
+
+              <button onClick={leaveGame}>
+                Leave Game
+              </button>
+            </div>
+          </div>
+        )}
+
+
+        {/* =====================================================
+            NORMAL WINNER
+            ===================================================== */}
+
+        {winner && (
+          <div className="winner-overlay">
+            <div className="winner-box">
+
+              <h2>{winner} wins!</h2>
+
+              <hr />
+
+              <div className="score-list">
+                <h3>Final Scores:</h3>
+
+                {Object.entries(scores).map(([pId, score]) => (
+                  <p
+                    key={pId}
+                    style={{
+                      color: pId === winner ? "green" : "black"
+                    }}
+                  >
+                    {pId}: <strong>{score}</strong>
+                  </p>
+                ))}
+              </div>
+
+              <button
+                onClick={rematch}
+                style={{ marginTop: "20px" }}
+              >
+                Play Again
+              </button>
+
+              {!timeoutExpired && (
+                <button
+                  onClick={leaveGame}
+                  style={{ marginTop: "10px" }}
+                >
+                  Leave Game
+                </button>
+              )}
+
+            </div>
+          </div>
+        )}
+
+
+        {/* =====================================================
+            PLAYERS / TABLE
+            ===================================================== */}
+
+        <div
+          className={
+            currentTurn === topPlayer
+              ? "player top active"
+              : "player top"
+          }
+        >
           {topPlayer} ({counts[topPlayer] || 0})
         </div>
 
         <div className="middle-row">
 
-          <div className={currentTurn === leftPlayer ? "player left active" : "player left"}>
+          <div
+            className={
+              currentTurn === leftPlayer
+                ? "player left active"
+                : "player left"
+            }
+          >
             {leftPlayer} ({counts[leftPlayer] || 0})
           </div>
 
@@ -401,15 +543,34 @@ function App() {
             <Table piles={piles} />
           </div>
 
-          <div className={currentTurn === rightPlayer ? "player right active" : "player right"}>
+          <div
+            className={
+              currentTurn === rightPlayer
+                ? "player right active"
+                : "player right"
+            }
+          >
             {rightPlayer} ({counts[rightPlayer] || 0})
           </div>
 
         </div>
 
-        <div className={currentTurn === playerId ? "player bottom active" : "player bottom"}>
 
-          <h3>You ({counts[playerId] || 0})</h3>
+        {/* =====================================================
+            YOUR HAND / ACTIONS
+            ===================================================== */}
+
+        <div
+          className={
+            currentTurn === playerId
+              ? "player bottom active"
+              : "player bottom"
+          }
+        >
+
+          <h3>
+            You ({counts[playerId] || 0})
+          </h3>
 
           <Hand
             cards={sortedHand}
@@ -429,18 +590,58 @@ function App() {
 
         <h3>Current Turn: {currentTurn}</h3>
 
+
+        {/* =====================================================
+            LEAVE GAME
+            ===================================================== */}
+
+        {!gameStarted &&
+          !gameEnded &&
+          !winner &&
+          !timeoutExpired && (
+            <button onClick={leaveGame}>
+              Leave Game
+            </button>
+          )}
+
       </div>
+
+
+      {/* =========================================================
+          RULES
+          ========================================================= */}
+
       <div className="rules">
         <h2>Rules:</h2>
-        <p>1. The player who has the 7 of hearts starts first. <br/> </p>
-        <p>2. The chance moves in cyclic order and each player has to add a card to any pile, either the next higher card of a suit or the next lower one. <br/> </p>
-        <p>3. If no such move is possible, players shall pass. <br/> </p>
-        <p>4. Game is over when a player's hand becomes empty. <br/> </p>
-        <p>5. Score is calculated as the sum of the values of the cards in each player's hand. <br/> </p>
-        <p>6. The player with least score wins. <br/> </p>
+
+        <p>
+          1. The player who has the 7 of hearts starts first.
+        </p>
+
+        <p>
+          2. The chance moves in cyclic order and each player
+          has to add a card to any pile, either the next higher
+          card of a suit or the next lower one.
+        </p>
+
+        <p>
+          3. If no such move is possible, players shall pass.
+        </p>
+
+        <p>
+          4. Game is over when a player's hand becomes empty.
+        </p>
+
+        <p>
+          5. Score is calculated as the sum of the values of
+          the cards in each player's hand.
+        </p>
+
+        <p>
+          6. The player with least score wins.
+        </p>
       </div>
     </>
   );
 }
-
 export default App;
