@@ -1,7 +1,7 @@
 from django.test import TestCase
 
 from .game_manager import GameManager
-
+from .room_manager import RoomManager
 
 class GameManagerTests(TestCase):
 
@@ -285,4 +285,291 @@ class GameManagerTests(TestCase):
 
         self.assertIsNone(
             game.get_player_by_token("unknown-token")
+        )
+        
+        
+# ---------------------------------------------------------
+# Commit 3: Multiple Player Rooms (RoomManager)
+# ---------------------------------------------------------
+    
+class RoomManagerTests(TestCase):
+
+    def test_create_room_assigns_host(self):
+        rooms = RoomManager()
+
+        room = rooms.create_room("host-token")
+
+        self.assertIsNotNone(room)
+        self.assertEqual(len(room.room_id), 6)
+        self.assertEqual(room.host_token, "host-token")
+        self.assertEqual(room.host_player, "Player 1")
+
+        self.assertIs(
+            rooms.get_room(room.room_id),
+            room
+        )
+
+    def test_room_has_separate_game_manager(self):
+        rooms = RoomManager()
+
+        room1 = rooms.create_room("token-1")
+        room2 = rooms.create_room("token-2")
+
+        self.assertIsNot(
+            room1.game_manager,
+            room2.game_manager
+        )
+
+    def test_players_in_different_rooms_are_independent(self):
+        rooms = RoomManager()
+
+        room1 = rooms.create_room("host-1")
+        room2 = rooms.create_room("host-2")
+
+        room1, player1 = rooms.join_room(
+            room1.room_id,
+            "token-2"
+        )
+
+        room2, player2 = rooms.join_room(
+            room2.room_id,
+            "token-3"
+        )
+
+        self.assertEqual(player1, "Player 2")
+        self.assertEqual(player2, "Player 2")
+
+        self.assertEqual(
+            len(room1.game_manager.players),
+            2
+        )
+
+        self.assertEqual(
+            len(room2.game_manager.players),
+            2
+        )
+
+    def test_join_nonexistent_room_fails(self):
+        rooms = RoomManager()
+
+        room, player = rooms.join_room(
+            "ABC123",
+            "token-1"
+        )
+
+        self.assertIsNone(room)
+        self.assertIsNone(player)
+
+    def test_fifth_player_cannot_join_room(self):
+        rooms = RoomManager()
+
+        room = rooms.create_room("token-1")
+
+        rooms.join_room(room.room_id, "token-2")
+        rooms.join_room(room.room_id, "token-3")
+        rooms.join_room(room.room_id, "token-4")
+
+        joined_room, player = rooms.join_room(
+            room.room_id,
+            "token-5"
+        )
+
+        self.assertIsNone(joined_room)
+        self.assertIsNone(player)
+
+        self.assertEqual(
+            len(room.game_manager.players),
+            4
+        )
+
+    def test_same_token_reconnects_to_same_room(self):
+        rooms = RoomManager()
+
+        room = rooms.create_room("host-token")
+
+        room, player = rooms.join_room(
+            room.room_id,
+            "token-2"
+        )
+
+        room.game_manager.remove_player(player)
+
+        joined_room, reconnected_player = rooms.join_room(
+            room.room_id,
+            "token-2"
+        )
+
+        self.assertIs(joined_room, room)
+        self.assertEqual(reconnected_player, player)
+        self.assertTrue(room.game_manager.connected[player])
+
+    def test_get_room_for_token(self):
+        rooms = RoomManager()
+
+        room1 = rooms.create_room("host-token")
+        room2 = rooms.create_room("other-host")
+
+        rooms.join_room(room2.room_id, "target-token")
+
+        found_room = rooms.get_room_for_token(
+            "target-token"
+        )
+
+        self.assertIs(found_room, room2)
+
+        self.assertIsNone(
+            rooms.get_room_for_token("unknown-token")
+        )
+
+    def test_group_names_are_unique(self):
+        rooms = RoomManager()
+
+        room1 = rooms.create_room("token-1")
+        room2 = rooms.create_room("token-2")
+
+        self.assertNotEqual(
+            room1.group_name,
+            room2.group_name
+        )
+
+        self.assertEqual(
+            room1.group_name,
+            f"game_room_{room1.room_id}"
+        )
+        
+    def test_host_reassigned_when_host_leaves(self):
+        rooms = RoomManager()
+
+        room = rooms.create_room("host-token")
+
+        rooms.join_room(room.room_id, "token-2")
+        rooms.join_room(room.room_id, "token-3")
+
+        remaining_room = rooms.leave_room(
+            room.room_id,
+            "host-token"
+        )
+
+        self.assertIs(remaining_room, room)
+
+        self.assertEqual(
+            room.host_player,
+            "Player 2"
+        )
+
+        self.assertEqual(
+            room.host_token,
+            "token-2"
+        )
+
+        self.assertNotIn(
+            "Player 1",
+            room.game_manager.players
+        )
+
+    def test_last_player_leaving_deletes_room(self):
+        rooms = RoomManager()
+
+        room = rooms.create_room("host-token")
+
+        room_id = room.room_id
+
+        result = rooms.leave_room(
+            room_id,
+            "host-token"
+        )
+
+        self.assertIsNone(result)
+        self.assertIsNone(rooms.get_room(room_id))
+
+    def test_non_host_leaving_does_not_change_host(self):
+        rooms = RoomManager()
+
+        room = rooms.create_room("host-token")
+
+        rooms.join_room(room.room_id, "token-2")
+
+        result = rooms.leave_room(
+            room.room_id,
+            "token-2"
+        )
+
+        self.assertIs(result, room)
+
+        self.assertEqual(
+            room.host_player,
+            "Player 1"
+        )
+
+        self.assertEqual(
+            room.host_token,
+            "host-token"
+        )
+
+    def test_leaving_player_is_removed_from_room_state(self):
+        rooms = RoomManager()
+
+        room = rooms.create_room("host-token")
+        rooms.join_room(room.room_id, "token-2")
+
+        player = "Player 2"
+
+        result = rooms.leave_room(
+            room.room_id,
+            "token-2"
+        )
+
+        self.assertIs(result, room)
+
+        self.assertNotIn(
+            player,
+            room.game_manager.players
+        )
+
+        self.assertNotIn(
+            player,
+            room.game_manager.connected
+        )
+
+        self.assertNotIn(
+            player,
+            room.game_manager.player_tokens
+        )
+
+        self.assertNotIn(
+            player,
+            room.game_manager.hands
+        )
+        
+    def test_room_groups_are_isolated(self):
+        rooms = RoomManager()
+
+        room1 = rooms.create_room("host-1")
+        room2 = rooms.create_room("host-2")
+
+        self.assertNotEqual(
+            room1.group_name,
+            room2.group_name
+        )
+
+    def test_room_game_state_is_isolated(self):
+        rooms = RoomManager()
+
+        room1 = rooms.create_room("host-1")
+        room2 = rooms.create_room("host-2")
+
+        room1_manager = room1.game_manager
+        room2_manager = room2.game_manager
+
+        room1_manager.hands["Player 1"] = ["7H"]
+        room2_manager.hands["Player 1"] = ["7S"]
+
+        self.assertEqual(
+            room1_manager.hands["Player 1"],
+            ["7H"]
+        )
+
+        self.assertEqual(
+            room2_manager.hands["Player 1"],
+            ["7S"]
         )

@@ -6,3 +6,4 @@ daphne>=4.2.1
 twisted[tls]>=25.5.0
 redis>=7.3.0
 asgiref>=3.11.1
+django-cors-headers>=4.7.0

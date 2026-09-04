@@ -45,6 +45,13 @@ function App() {
     diamonds: {low:null, high: null},
     clubs: {low:null, high: null},
   });
+
+  const [screen, setScreen] = useState("lobby");
+  const [roomCode, setRoomCode] = useState("");
+  const [roomInput, setRoomInput] = useState("");
+  const [error, setError] = useState("");
+  const [gameStarted, setGameStarted] = useState(false);
+  const [host, setHost] = useState(null);
   
   const [hand, setHand] = useState([]);
   
@@ -60,8 +67,82 @@ function App() {
 
   const [scores, setScores] = useState({});
 
-  const [winner, setWinner] = useState(null)
-  
+  const [winner, setWinner] = useState(null);
+
+  async function createRoom() {
+    const token = getPlayerToken();
+
+    try {
+      const response = await fetch(
+        `http://${window.location.hostname}:8000/api/rooms/create/`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            token: token,
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        if (data.room_id) {
+          setError(
+            `${data.error} Room: ${data.room_id}`
+          );
+        } else {
+          setError(data.error || "Could not create game.");
+        }
+
+        return;
+      }
+
+      setError("");
+      setRoomCode(data.room_id);
+      localStorage.setItem("active_room", data.room_id);
+      setScreen("game");
+
+    } catch (error) {
+      console.error(error);
+      setError("Could not connect to the server.");
+    }
+  }
+
+  function joinRoom() {
+    const code = roomInput.trim().toUpperCase();
+
+    if (!code) {
+      setError("Please enter a room code.");
+      return;
+    }
+
+    setError("");
+    localStorage.setItem("active_room", code);
+    setRoomCode(code);
+    setScreen("game");
+  }
+
+  function leaveGame() {
+    if (!socket) return;
+
+    socket.send(
+      JSON.stringify({
+        action: "leave_room"
+      })
+    );
+
+    localStorage.removeItem("active_room");
+
+    setRoomCode("");
+    setRoomInput("");
+    setGameStarted(false);
+    setHost(null);
+    setScreen("lobby");
+  }
+
   function passTurn(){
     if (!socket) return;
   
@@ -81,46 +162,64 @@ function App() {
   }
 
   useEffect(() => {
-  const playerToken = getPlayerToken();
+    const savedRoom = localStorage.getItem("active_room");
 
-  const ws = new WebSocket(
-    `ws://${window.location.hostname}:8000/ws/game/?token=${playerToken}`
-  );
-  
-  ws.onopen = () => {
-    console.log("Connected to a server.");
-  };
+    if (savedRoom) {
+      setRoomCode(savedRoom);
+      setScreen("game");
+    }
+  }, []);
 
-  ws.onmessage = (event) => {
-
-    const data = JSON.parse(event.data);
-
-    if (data.error) {
-      alert(data.error);
+  useEffect(() => {
+    if (screen !== "game" || !roomCode) {
       return;
     }
 
-    if (data.piles) setPiles({...data.piles});
-    if (data.hand) setHand(data.hand);
-    if (data.turn) setCurrentTurn(data.turn);
-    if (data.player) setPlayerId(data.player);
-    if (data.counts) setCounts({...data.counts});
-    if (data.players) setPlayers([...data.players]);
-    if (data.scores) setScores(data.scores);
-    if ("winner" in data) setWinner(data.winner ?? null);
-  };
+    const playerToken = getPlayerToken();
 
-  ws.onclose = () => {
-    console.log("Disconnected");
-  };
+    const ws = new WebSocket(
+      `ws://${window.location.hostname}:8000/ws/game/${roomCode}/?token=${playerToken}`
+    );
 
-  setSocket(ws);
+    ws.onopen = () => {
+      console.log(`Connected to room ${roomCode}.`);
+      setError("");
+    };
 
-  return () => {
-    ws.close();
-  };
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
 
-}, []);
+      if (data.error) {
+        setError(data.error);
+        localStorage.removeItem("active_room");
+        setRoomCode("");
+        setScreen("lobby");
+        return;
+      }
+      if (data.room_id) setRoomCode(data.room_id);
+      if (data.started !== undefined) setGameStarted(data.started);
+      if (data.host) setHost(data.host);
+      if (data.piles) setPiles({...data.piles});
+      if (data.hand) setHand(data.hand);
+      if (data.turn) setCurrentTurn(data.turn);
+      if (data.player) setPlayerId(data.player);
+      if (data.counts) setCounts({...data.counts});
+      if (data.players) setPlayers([...data.players]);
+      if (data.scores) setScores(data.scores);
+      if ("winner" in data) setWinner(data.winner ?? null);
+    };
+
+    ws.onclose = () => {
+      console.log("Disconnected from room.");
+    };
+
+    setSocket(ws);
+
+    return () => {
+      ws.close();
+    };
+
+  }, [screen, roomCode]);
 
   function playCard(card){
     if (!socket) return;
@@ -210,6 +309,36 @@ function App() {
   
   const hasMove = sortedHand.some(card => isPlayable(card));
 
+  if (screen === "lobby") {
+    return (
+      <div className="lobby">
+        <h1>Card Game - Sevens</h1>
+
+        <button onClick={createRoom}>
+          Create Game
+        </button>
+
+        <div>
+          <input
+            type="text"
+            value={roomInput}
+            onChange={(e) => setRoomInput(e.target.value)}
+            placeholder="Room Code"
+            maxLength={6}
+          />
+
+          <button onClick={joinRoom}>
+            Join Game
+          </button>
+        </div>
+
+        {error && (
+          <p>{error}</p>
+        )}
+      </div>
+    );
+  }
+
   return (
 
     <>
@@ -232,7 +361,31 @@ function App() {
             </div>
           </div>
         )}
-        <h3>You are {playerId}</h3>
+        <div>
+          <strong>Room Code:</strong> {roomCode}
+        </div>
+
+        <div>
+          <strong>Host:</strong> {host}
+        </div>
+
+        <div>
+          <strong>You are:</strong> {playerId}
+        </div>
+
+        {!gameStarted && (
+          <div>
+            <h2>Waiting for players</h2>
+            <p>
+              {players.length} / 4 players connected
+            </p>
+          </div>
+        )}
+        {(!gameStarted || winner) && (
+          <button onClick={leaveGame}>
+            Leave Game
+          </button>
+        )}
 
         <div className={currentTurn === topPlayer ? "player top active" : "player top"}>
           {topPlayer} ({counts[topPlayer] || 0})
