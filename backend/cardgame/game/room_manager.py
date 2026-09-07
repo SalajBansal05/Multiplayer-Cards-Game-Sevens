@@ -139,6 +139,7 @@ class RoomManager:
         room.game_manager.connected.pop(player_id, None)
         room.game_manager.player_tokens.pop(player_id, None)
         room.game_manager.hands.pop(player_id, None)
+        room.game_manager.players_playing_again.discard(player_id)
 
         # If nobody remains, delete the room.
         if len(room.game_manager.players) == 0:

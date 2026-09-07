@@ -70,6 +70,8 @@ function App() {
 
   const [players, setPlayers] = useState([]);
 
+  const [playersPlayingAgain, setPlayersPlayingAgain] = useState([]);
+
   const [scores, setScores] = useState({});
 
   const [winner, setWinner] = useState(null);
@@ -169,6 +171,12 @@ function App() {
   
   }
 
+  const startGame = () => {
+      socket.send(JSON.stringify({
+          action: "start_game"
+      }));
+  };
+
   function rematch(){
     socket.send(JSON.stringify({
       action: "rematch"
@@ -227,14 +235,39 @@ function App() {
       }
 
       if (data.room_id) setRoomCode(data.room_id);
-      if (data.started !== undefined) setGameStarted(data.started);
+      if (data.started !== undefined) {
+        setGameStarted(data.started);
+      }
+
       if (data.host) setHost(data.host);
+
       if (data.piles) setPiles({...data.piles});
+
       if (data.hand) setHand(data.hand);
+
       if (data.turn) setCurrentTurn(data.turn);
+
       if (data.player) setPlayerId(data.player);
+
       if (data.counts) setCounts({...data.counts});
-      if (data.players) setPlayers([...data.players]);
+
+      if (data.players) {
+        setPlayers([...data.players]);
+
+        if (
+          data.started &&
+          data.player &&
+          !data.players.includes(data.player)
+        ) {
+          setError("The game has already started. You were not selected for this game.");
+          setScreen("lobby");
+          localStorage.removeItem("active_room");
+        }
+      }
+
+      if (data.players_playing_again) {
+        setPlayersPlayingAgain([...data.players_playing_again]);
+      }
       if (data.scores) setScores(data.scores);
       if ("winner" in data) setWinner(data.winner ?? null);
     };
@@ -305,20 +338,6 @@ function App() {
     return false;
   }
 
-  let topPlayer = null;
-  let leftPlayer = null;
-  let rightPlayer = null;
-
-  if (players.length === 4 && playerId) {
-
-    const i = players.indexOf(playerId);
-
-    topPlayer = players[(i + 2) % 4];
-    leftPlayer = players[(i + 3) % 4];
-    rightPlayer = players[(i + 1) % 4];
-
-  }
-
   const suitOrder = {H:0, S:1, D:2, C:3};
   const sortedHand = [...hand].sort((a,b) => {
     const suitA = suitOrder[a.slice(-1)];
@@ -376,6 +395,7 @@ function App() {
         {/* =====================================================
             HEADER / ROOM INFORMATION
             ===================================================== */}
+
         <header className="game-header">
           <h1>Card Game - Sevens</h1>
 
@@ -401,15 +421,50 @@ function App() {
 
         {!gameStarted && !gameEnded && !winner && (
           <div className="game-status">
-            <h2>Waiting for players</h2>
+
+            <h2>Waiting for host to start the game</h2>
+
             <p>
-              {players.length} / 4 players connected
+              {players.length} / 6 players in room
             </p>
+
+            {players.length < 2 && (
+              <p>
+                At least 2 players are required to start.
+              </p>
+            )}
+
+            {players.length >= 2 && playerId !== host && (
+              <p>
+                Waiting for the host to start the game...
+              </p>
+            )}
+
+            <div className="lobby-buttons">
+
+              {playerId === host && players.length >= 2 && (
+                <button onClick={startGame}>
+                  Start Game
+                </button>
+              )}
+
+              <button onClick={leaveGame}>
+                Leave Game
+              </button>
+
+            </div>
+
           </div>
         )}
 
+
+        {/* =====================================================
+            PAUSED GAME
+            ===================================================== */}
+
         {paused && (
           <div className="game-status">
+
             <h2>Game Paused</h2>
 
             <p>
@@ -417,7 +472,9 @@ function App() {
             </p>
 
             {!timeoutExpired && (
-              <p>Waiting for reconnection...</p>
+              <p>
+                Waiting for reconnection...
+              </p>
             )}
 
             {timeoutExpired && (
@@ -425,14 +482,18 @@ function App() {
                 {disconnectedPlayer} did not reconnect in time.
               </p>
             )}
+
           </div>
         )}
 
+
         {paused && timeoutExpired && playerId === host && (
           <div className="game-status">
+
             <button onClick={endGame}>
               End Game
             </button>
+
           </div>
         )}
 
@@ -442,25 +503,90 @@ function App() {
             ===================================================== */}
 
         {gameEnded && (
-          <div className="winner-overlay">
-            <div className="winner-box">
-              <h2>Game Ended</h2>
+          <div className="game-ended-overlay">
 
-              <p>
-                The host ended the game because a player
-                did not reconnect.
-              </p>
+            <div className="game-ended-card">
 
-              {playerId === host && (
+              <h2>Game Over</h2>
+
+              {winner && (
+                <p>
+                  {winner} won the game!
+                </p>
+              )}
+
+              <div className="scores">
+
+                {Object.entries(scores).map(
+                  ([player, score]) => (
+                    <p key={player}>
+                      {player}: {score}
+                    </p>
+                  )
+                )}
+
+              </div>
+
+
+              {/* ---------------------------------------------
+                  REMATCH STATUS
+                  --------------------------------------------- */}
+
+              <div className="rematch-status">
+
+                <p>
+                  {playersPlayingAgain.length} / {players.length}
+                  {" "}players ready for another game
+                </p>
+
+                {players.map((player) => (
+                  <p key={player}>
+                    {player}
+                    {" "}
+                    {playersPlayingAgain.includes(player)
+                      ? "✓ Ready"
+                      : "Waiting"}
+                  </p>
+                ))}
+
+              </div>
+
+
+              {/* ---------------------------------------------
+                  PLAY AGAIN
+                  --------------------------------------------- */}
+
+              {!playersPlayingAgain.includes(playerId) ? (
                 <button onClick={rematch}>
                   Play Again
                 </button>
+              ) : (
+                <p>
+                  You are ready for the next game.
+                </p>
               )}
 
+
+              {/* ---------------------------------------------
+                  HOST START
+                  --------------------------------------------- */}
+
+              {playerId === host && (
+                <button
+                  onClick={startGame}
+                  disabled={playersPlayingAgain.length < 2}
+                >
+                  Start Game
+                </button>
+              )}
+
+
               <button onClick={leaveGame}>
-                Leave Game
+                Leave Room
               </button>
+
             </div>
+
           </div>
         )}
 
@@ -469,8 +595,9 @@ function App() {
             NORMAL WINNER
             ===================================================== */}
 
-        {winner && (
+        {winner && !gameEnded && (
           <div className="winner-overlay">
+
             <div className="winner-box">
 
               <h2>{winner} wins!</h2>
@@ -478,26 +605,76 @@ function App() {
               <hr />
 
               <div className="score-list">
+
                 <h3>Final Scores:</h3>
 
-                {Object.entries(scores).map(([pId, score]) => (
-                  <p
-                    key={pId}
-                    style={{
-                      color: pId === winner ? "green" : "black"
-                    }}
-                  >
-                    {pId}: <strong>{score}</strong>
-                  </p>
-                ))}
+                {Object.entries(scores).map(
+                  ([pId, score]) => (
+                    <p
+                      key={pId}
+                      style={{
+                        color:
+                          pId === winner
+                            ? "green"
+                            : "black"
+                      }}
+                    >
+                      {pId}: <strong>{score}</strong>
+                    </p>
+                  )
+                )}
+
               </div>
 
-              <button
-                onClick={rematch}
-                style={{ marginTop: "20px" }}
-              >
-                Play Again
-              </button>
+
+              {/* ---------------------------------------------
+                  REMATCH STATUS
+                  --------------------------------------------- */}
+
+              <div className="rematch-status">
+
+                <p>
+                  {playersPlayingAgain.length} / {players.length}
+                  {" "}players ready for another game
+                </p>
+
+                {players.map((player) => (
+                  <p key={player}>
+                    {player}
+                    {" "}
+                    {playersPlayingAgain.includes(player)
+                      ? "✓ Ready"
+                      : "Waiting"}
+                  </p>
+                ))}
+
+              </div>
+
+
+              {!playersPlayingAgain.includes(playerId) ? (
+                <button
+                  onClick={rematch}
+                  style={{ marginTop: "20px" }}
+                >
+                  Play Again
+                </button>
+              ) : (
+                <p>
+                  You are ready for the next game.
+                </p>
+              )}
+
+
+              {playerId === host && (
+                <button
+                  onClick={startGame}
+                  disabled={playersPlayingAgain.length < 2}
+                  style={{ marginTop: "10px" }}
+                >
+                  Start Game
+                </button>
+              )}
+
 
               {!timeoutExpired && (
                 <button
@@ -509,6 +686,7 @@ function App() {
               )}
 
             </div>
+
           </div>
         )}
 
@@ -517,92 +695,94 @@ function App() {
             PLAYERS / TABLE
             ===================================================== */}
 
-        <div
-          className={
-            currentTurn === topPlayer
-              ? "player top active"
-              : "player top"
-          }
-        >
-          {topPlayer} ({counts[topPlayer] || 0})
-        </div>
+        {gameStarted && (
+          <div className="players-area">
 
-        <div className="middle-row">
+            <h2>Players</h2>
 
-          <div
-            className={
-              currentTurn === leftPlayer
-                ? "player left active"
-                : "player left"
-            }
-          >
-            {leftPlayer} ({counts[leftPlayer] || 0})
+            <div className="players-list">
+
+              {players
+                .filter((player) => player !== playerId)
+                .map((player) => (
+                  <div
+                    key={player}
+                    className={
+                      currentTurn === player
+                        ? "player active"
+                        : "player"
+                    }
+                  >
+                    <span className="player-name">
+                      {player}
+                    </span>
+
+                    <span className="player-card-count">
+                      {counts[player] || 0} cards
+                    </span>
+                  </div>
+                ))}
+
+            </div>
+
+
+            <div className="table-center">
+
+              <Table piles={piles} />
+
+            </div>
+
           </div>
-
-          <div className="table-center">
-            <Table piles={piles} />
-          </div>
-
-          <div
-            className={
-              currentTurn === rightPlayer
-                ? "player right active"
-                : "player right"
-            }
-          >
-            {rightPlayer} ({counts[rightPlayer] || 0})
-          </div>
-
-        </div>
+        )}
 
 
         {/* =====================================================
             YOUR HAND / ACTIONS
             ===================================================== */}
 
-        <div
-          className={
-            currentTurn === playerId
-              ? "player bottom active"
-              : "player bottom"
-          }
-        >
-
-          <h3>
-            You ({counts[playerId] || 0})
-          </h3>
-
-          <Hand
-            cards={sortedHand}
-            playCard={playCard}
-            isMyTurn={isMyTurn}
-            isPlayable={isPlayable}
-          />
-
-          <button
-            onClick={passTurn}
-            disabled={!isMyTurn || hasMove}
+        {gameStarted && (
+          <div
+            className={
+              currentTurn === playerId
+                ? "player bottom active"
+                : "player bottom"
+            }
           >
-            Pass
-          </button>
 
-        </div>
+            <h3>
+              You ({counts[playerId] || 0})
+            </h3>
 
-        <h3>Current Turn: {currentTurn}</h3>
+            <Hand
+              cards={sortedHand}
+              playCard={playCard}
+              isMyTurn={isMyTurn}
+              isPlayable={isPlayable}
+            />
+
+            <button
+              onClick={passTurn}
+              disabled={!isMyTurn || hasMove}
+            >
+              Pass
+            </button>
+
+          </div>
+        )}
+
+
+        {gameStarted && (
+          <h3>
+            Current Turn: {currentTurn}
+          </h3>
+        )}
 
 
         {/* =====================================================
             LEAVE GAME
             ===================================================== */}
 
-        {!gameStarted &&
-          !gameEnded &&
-          !winner &&
-          !timeoutExpired && (
-            <button onClick={leaveGame}>
-              Leave Game
-            </button>
-          )}
+        
 
       </div>
 
@@ -612,6 +792,7 @@ function App() {
           ========================================================= */}
 
       <div className="rules">
+
         <h2>Rules:</h2>
 
         <p>
@@ -640,6 +821,7 @@ function App() {
         <p>
           6. The player with least score wins.
         </p>
+
       </div>
     </>
   );

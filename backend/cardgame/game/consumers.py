@@ -145,12 +145,11 @@ class GameConsumer(AsyncWebsocketConsumer):
         await self.send_state()
 
         # If this player completed the room, notify everyone.
-        if len(self.game_room.game_manager.players) == 4:
-            await self.channel_layer.group_send(
-                self.room,
-                {"type": "game_update"}
-            )
-
+        await self.channel_layer.group_send(
+            self.room,
+            {"type": "game_update"}
+        )
+        
     async def disconnect(self, close_code):
 
         if hasattr(self, "player_id"):
@@ -180,6 +179,23 @@ class GameConsumer(AsyncWebsocketConsumer):
         data = json.loads(text_data)
 
         game_manager = self.game_room.game_manager
+        
+        if data["action"] == "start_game":
+            if self.player_id != self.game_room.host_player:
+                await self.send(text_data=json.dumps({
+                    "error": "Only the host can start the game."
+                }))
+                return
+
+            if game_manager.start_game():
+                await self.channel_layer.group_send(
+                    self.room,
+                    {"type": "game_update"}
+                )
+            else:
+                await self.send(text_data=json.dumps({
+                    "error": "Game cannot be started. At least 2 players must be ready."
+                }))
 
         if data["action"] == "play_card":
             card = data["card"]
@@ -210,13 +226,15 @@ class GameConsumer(AsyncWebsocketConsumer):
                 )
 
         if data["action"] == "rematch":
-
-            game_manager.reset_game()
-
-            await self.channel_layer.group_send(
-                self.room,
-                {"type": "game_update"}
-            )
+            if game_manager.play_again(self.player_id):
+                await self.channel_layer.group_send(
+                    self.room,
+                    {"type": "game_update"}
+                )
+            else:
+                await self.send(text_data=json.dumps({
+                    "error": "You cannot choose Play Again right now."
+                }))
             
         if data["action"] == "leave_room":
 
@@ -302,6 +320,7 @@ class GameConsumer(AsyncWebsocketConsumer):
                 "turn": game_manager.current_turn,
                 "player": self.player_id,
                 "players": game_manager.players,
+                "players_playing_again": list(game_manager.players_playing_again),
                 "counts": counts,
                 "scores": scores,
                 "winner": game_manager.winner,

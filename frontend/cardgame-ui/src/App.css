@@ -82,6 +82,24 @@
   .player.left { order: 3; }
   .player.right { order: 4; }
   .player.bottom { order: 5; }
+
+  .winner-overlay,
+  .game-ended-overlay {
+    padding: 10px;
+    align-items: flex-start;
+  }
+
+  .winner-box,
+  .game-ended-card {
+    width: 95vw;
+    max-height: calc(100vh - 20px);
+
+    margin: 10px auto;
+
+    padding: 20px;
+
+    font-size: 20px;
+  }
 }
 
 /* Ensure the 'active' border doesn't change the box size */
@@ -89,6 +107,18 @@
   padding: 8px;
   border: 2px solid transparent; 
   border-radius: 8px;
+}
+
+.player-card-count {
+  margin-left: 12px;
+}
+
+.lobby-buttons {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
 }
 
 .active {
@@ -149,23 +179,48 @@
   transform:translateY(-15px) scale(1.1);
 }
 
-.winner-overlay {
+.winner-overlay,
+.game-ended-overlay {
   position: fixed;
-  top: 0;
-  left: 0;
+  inset: 0;
   width: 100vw;
   height: 100vh;
-  background: rgba(0,0,0,0.9);
-  z-index: 9999; 
+
+  background: rgba(0, 0, 0, 0.96);
+
+  z-index: 9999;
+
   display: flex;
   justify-content: center;
   align-items: center;
+
+  padding: 20px;
+  box-sizing: border-box;
+
+  overflow-y: auto;
 }
 
-.winner-box{
-  background:white;
-  padding:40px;
-  border-radius:12px;
-  font-size:28px;
-  text-align:center;
+.winner-box,
+.game-ended-card {
+  background: white;
+
+  width: min(600px, calc(100vw - 40px));
+
+  max-height: calc(100vh - 40px);
+
+  padding: 40px;
+
+  border: 2px solid #222;
+  border-radius: 12px;
+
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+
+  font-size: clamp(18px, 3vw, 28px);
+
+  text-align: center;
+
+  box-sizing: border-box;
+
+  overflow-y: auto;
 }
+

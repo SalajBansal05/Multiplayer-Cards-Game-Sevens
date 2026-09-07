@@ -3,16 +3,21 @@ from django.test import TestCase
 from .game_manager import GameManager
 from .room_manager import RoomManager
 
+
 class GameManagerTests(TestCase):
 
     def create_full_game(self):
         """
-        Create a GameManager with four players and a dealt game.
+        Create a GameManager with four players and a started game.
         """
         game = GameManager()
 
         for i in range(1, 5):
             game.add_player(f"token-{i}")
+
+        result = game.start_game()
+
+        self.assertTrue(result)
 
         return game
 
@@ -20,12 +25,65 @@ class GameManagerTests(TestCase):
     # Commit 1: Game rules and state
     # ---------------------------------------------------------
 
-    def test_game_starts_with_four_players(self):
-        game = self.create_full_game()
+    def test_game_does_not_start_automatically_with_four_players(self):
+        game = GameManager()
+
+        for i in range(1, 5):
+            game.add_player(f"token-{i}")
 
         self.assertEqual(len(game.players), 4)
+        self.assertFalse(game.started)
+        self.assertIsNone(game.current_turn)
+
+    def test_game_starts_when_requested(self):
+        game = GameManager()
+
+        for i in range(1, 5):
+            game.add_player(f"token-{i}")
+
+        result = game.start_game()
+
+        self.assertTrue(result)
         self.assertTrue(game.started)
         self.assertIsNotNone(game.current_turn)
+        self.assertEqual(len(game.hands), 4)
+
+    def test_game_can_start_with_two_players(self):
+        game = GameManager()
+
+        game.add_player("token-1")
+        game.add_player("token-2")
+
+        result = game.start_game()
+
+        self.assertTrue(result)
+        self.assertTrue(game.started)
+        self.assertEqual(len(game.players), 2)
+        self.assertEqual(len(game.hands), 2)
+
+    def test_game_can_start_with_six_players(self):
+        game = GameManager()
+
+        for i in range(1, 7):
+            game.add_player(f"token-{i}")
+
+        result = game.start_game()
+
+        self.assertTrue(result)
+        self.assertTrue(game.started)
+        self.assertEqual(len(game.players), 6)
+        self.assertEqual(len(game.hands), 6)
+
+    def test_game_cannot_start_with_one_player(self):
+        game = GameManager()
+
+        game.add_player("token-1")
+
+        result = game.start_game()
+
+        self.assertFalse(result)
+        self.assertFalse(game.started)
+        self.assertEqual(game.hands, {})
 
     def test_player_with_7h_gets_first_turn(self):
         game = self.create_full_game()
@@ -286,11 +344,11 @@ class GameManagerTests(TestCase):
         self.assertIsNone(
             game.get_player_by_token("unknown-token")
         )
-        
+
     # ---------------------------------------------------------
     # Commit 4: Disconnect Handling and Game Lifecycle
     # ---------------------------------------------------------
-    
+
     def test_disconnected_current_player_pauses_game(self):
         game = self.create_full_game()
 
@@ -477,7 +535,7 @@ class GameManagerTests(TestCase):
         result = game.pass_turn(player)
 
         self.assertFalse(result)
-        
+
     def test_check_for_disconnected_turn_sets_timeout_flag_false(self):
         game = self.create_full_game()
 
@@ -496,7 +554,6 @@ class GameManagerTests(TestCase):
         self.assertFalse(
             game.disconnect_timeout_expired
         )
-
 
     def test_reconnect_clears_timeout_state(self):
         game = self.create_full_game()
@@ -519,7 +576,6 @@ class GameManagerTests(TestCase):
             game.disconnect_timeout_expired
         )
 
-
     def test_reset_game_clears_disconnect_state(self):
         game = self.create_full_game()
 
@@ -537,7 +593,7 @@ class GameManagerTests(TestCase):
         self.assertFalse(
             game.disconnect_timeout_expired
         )
-    
+
     def test_game_cannot_end_before_timeout(self):
         game = self.create_full_game()
 
@@ -554,7 +610,6 @@ class GameManagerTests(TestCase):
         self.assertFalse(result)
         self.assertTrue(game.paused)
         self.assertTrue(game.started)
-
 
     def test_game_can_end_after_timeout(self):
         game = self.create_full_game()
@@ -573,7 +628,6 @@ class GameManagerTests(TestCase):
         self.assertFalse(game.paused)
         self.assertTrue(game.game_ended)
         self.assertIsNone(game.disconnected_player)
-
 
     def test_reset_game_clears_game_ended_state(self):
         game = self.create_full_game()
@@ -597,7 +651,7 @@ class GameManagerTests(TestCase):
         self.assertFalse(
             game.disconnect_timeout_expired
         )
-        
+
     def test_timeout_removes_disconnected_player(self):
         game = self.create_full_game()
 
@@ -623,7 +677,7 @@ class GameManagerTests(TestCase):
             game.disconnected_player,
             player
         )
-        
+
     def test_timed_out_player_cannot_reconnect_until_game_ends(self):
         game = self.create_full_game()
 
@@ -651,7 +705,7 @@ class GameManagerTests(TestCase):
         result = game.add_player(token)
 
         self.assertIsNotNone(result)
-        
+
     def test_final_scores_are_preserved_after_player_leaves(self):
         game = self.create_full_game()
 
@@ -674,7 +728,7 @@ class GameManagerTests(TestCase):
             scores_after,
             scores_before
         )
-        
+
     def test_timed_out_player_can_rejoin_ended_game_without_starting_it(self):
         game = self.create_full_game()
 
@@ -707,12 +761,276 @@ class GameManagerTests(TestCase):
         self.assertFalse(game.started)
         self.assertTrue(game.game_ended)
         self.assertEqual(len(game.players), 4)
+
+    # ---------------------------------------------------------
+    # Commit 5: Lobby and player count
+    # ---------------------------------------------------------
+
+    def test_seventh_player_cannot_join_game(self):
+        game = GameManager()
+
+        for i in range(1, 7):
+            player = game.add_player(f"token-{i}")
+            self.assertIsNotNone(player)
+
+        seventh_player = game.add_player("token-7")
+
+        self.assertIsNone(seventh_player)
+        self.assertEqual(len(game.players), 6)
         
+    # ---------------------------------------------------------
+    # Commit 5: Rematch selection
+    # ---------------------------------------------------------
+
+    def test_player_can_choose_to_play_again(self):
+        game = self.create_full_game()
+
+        game.started = False
+        game.game_ended = True
+
+        result = game.play_again("Player 1")
+
+        self.assertTrue(result)
+        self.assertEqual(
+            game.players_playing_again,
+            {"Player 1"}
+        )
+
+
+    def test_multiple_players_can_choose_to_play_again(self):
+        game = self.create_full_game()
+
+        game.started = False
+        game.game_ended = True
+
+        game.play_again("Player 1")
+        game.play_again("Player 3")
+
+        self.assertEqual(
+            game.players_playing_again,
+            {"Player 1", "Player 3"}
+        )
+
+
+    def test_player_cannot_choose_play_again_during_game(self):
+        game = self.create_full_game()
+
+        result = game.play_again("Player 1")
+
+        self.assertFalse(result)
+        self.assertEqual(
+            game.players_playing_again,
+            set()
+        )
+
+
+    def test_non_player_cannot_choose_play_again(self):
+        game = GameManager()
+
+        game.add_player("token-1")
+        game.add_player("token-2")
+
+        game.game_ended = True
+
+        result = game.play_again("Player 3")
+
+        self.assertFalse(result)
+        self.assertEqual(
+            game.players_playing_again,
+            set()
+        )
+
+
+    def test_leaving_player_is_removed_from_play_again_selection(self):
+        rooms = RoomManager()
+
+        room = rooms.create_room("host-token")
+        rooms.join_room(room.room_id, "token-2")
+
+        game = room.game_manager
+
+        game.game_ended = True
+        game.play_again("Player 2")
+
+        self.assertEqual(
+            game.players_playing_again,
+            {"Player 2"}
+        )
+
+        rooms.leave_room(
+            room.room_id,
+            "token-2"
+        )
+
+        self.assertEqual(
+            game.players_playing_again,
+            set()
+        )
         
-# ---------------------------------------------------------
-# Commit 3: Multiple Player Rooms (RoomManager)
-# ---------------------------------------------------------
-    
+    def test_rematch_requires_at_least_two_players(self):
+        game = self.create_full_game()
+
+        game.started = False
+        game.game_ended = True
+
+        game.play_again("Player 1")
+
+        result = game.start_game()
+
+        self.assertFalse(result)
+        self.assertFalse(game.started)
+
+        self.assertEqual(
+            game.players,
+            ["Player 1", "Player 2", "Player 3", "Player 4"]
+        )
+        
+    def test_rematch_uses_only_players_who_chose_play_again(self):
+        game = self.create_full_game()
+
+        game.started = False
+        game.game_ended = True
+
+        game.play_again("Player 1")
+        game.play_again("Player 3")
+
+        result = game.start_game()
+
+        self.assertTrue(result)
+        self.assertTrue(game.started)
+
+        self.assertEqual(
+            set(game.players),
+            {"Player 1", "Player 3"}
+        )
+
+        self.assertEqual(
+            set(game.hands.keys()),
+            {"Player 1", "Player 3"}
+        )
+
+        self.assertEqual(
+            game.players_playing_again,
+            set()
+        )
+        
+    def test_host_can_start_first_game_with_two_to_six_players(self):
+        for player_count in range(2, 7):
+            game = GameManager()
+
+            for i in range(1, player_count + 1):
+                game.add_player(f"token-{i}")
+
+            result = game.start_game()
+
+            self.assertTrue(result)
+            self.assertTrue(game.started)
+            self.assertEqual(
+                len(game.players),
+                player_count
+            )
+            self.assertEqual(
+                len(game.hands),
+                player_count
+            )
+            
+    def test_rematch_preserves_player_order(self):
+        game = self.create_full_game()
+
+        game.started = False
+        game.game_ended = True
+
+        game.play_again("Player 1")
+        game.play_again("Player 3")
+
+        result = game.start_game()
+
+        self.assertTrue(result)
+        self.assertEqual(
+            game.players,
+            ["Player 1", "Player 3"]
+        )
+            
+    def test_rematch_uses_only_selected_players_after_normal_win(self):
+        game = self.create_full_game()
+
+        winner = game.current_turn
+        game.hands[winner] = ["7H", "8H"]
+
+        game.play_card(winner, "7H")
+
+        game.winner = winner
+        game.started = False
+
+        game.play_again("Player 1")
+        game.play_again("Player 2")
+
+        result = game.start_game()
+
+        self.assertTrue(result)
+        self.assertEqual(
+            set(game.players),
+            {"Player 1", "Player 2"}
+        )
+        self.assertEqual(
+            set(game.hands.keys()),
+            {"Player 1", "Player 2"}
+        )
+        self.assertEqual(
+            game.players_playing_again,
+            set()
+        )
+        
+    def test_normal_win_rematch_uses_only_players_who_chose_play_again(self):
+        game = self.create_full_game()
+
+        winner = game.current_turn
+
+        # Make the winner finish the game.
+        game.hands[winner] = ["7H"]
+        result = game.play_card(winner, "7H")
+
+        self.assertTrue(result)
+        self.assertEqual(game.winner, winner)
+        self.assertFalse(game.started)
+
+        # Two players choose to play again.
+        game.play_again("Player 1")
+        game.play_again("Player 2")
+
+        result = game.start_game()
+
+        self.assertTrue(result)
+
+        self.assertEqual(
+            set(game.players),
+            {"Player 1", "Player 2"}
+        )
+
+        self.assertEqual(
+            set(game.hands.keys()),
+            {"Player 1", "Player 2"}
+        )
+
+        self.assertEqual(
+            set(game.connected.keys()),
+            {"Player 1", "Player 2"}
+        )
+
+        self.assertEqual(
+            set(game.player_tokens.keys()),
+            {"Player 1", "Player 2"}
+        )
+
+        self.assertEqual(
+            game.players_playing_again,
+            set()
+        )
+
+    # ---------------------------------------------------------
+    # Commit 3: Multiple Player Rooms (RoomManager)
+    # ---------------------------------------------------------
+
 class RoomManagerTests(TestCase):
 
     def test_create_room_assigns_host(self):
@@ -781,18 +1099,39 @@ class RoomManagerTests(TestCase):
         self.assertIsNone(room)
         self.assertIsNone(player)
 
-    def test_fifth_player_cannot_join_room(self):
+    def test_room_allows_six_players(self):
         rooms = RoomManager()
 
         room = rooms.create_room("token-1")
 
-        rooms.join_room(room.room_id, "token-2")
-        rooms.join_room(room.room_id, "token-3")
-        rooms.join_room(room.room_id, "token-4")
+        for i in range(2, 7):
+            joined_room, player = rooms.join_room(
+                room.room_id,
+                f"token-{i}"
+            )
+
+            self.assertIs(joined_room, room)
+            self.assertIsNotNone(player)
+
+        self.assertEqual(
+            len(room.game_manager.players),
+            6
+        )
+
+    def test_seventh_player_cannot_join_room(self):
+        rooms = RoomManager()
+
+        room = rooms.create_room("token-1")
+
+        for i in range(2, 7):
+            rooms.join_room(
+                room.room_id,
+                f"token-{i}"
+            )
 
         joined_room, player = rooms.join_room(
             room.room_id,
-            "token-5"
+            "token-7"
         )
 
         self.assertIsNone(joined_room)
@@ -800,7 +1139,7 @@ class RoomManagerTests(TestCase):
 
         self.assertEqual(
             len(room.game_manager.players),
-            4
+            6
         )
 
     def test_same_token_reconnects_to_same_room(self):
@@ -857,7 +1196,7 @@ class RoomManagerTests(TestCase):
             room1.group_name,
             f"game_room_{room1.room_id}"
         )
-        
+
     def test_host_reassigned_when_host_leaves(self):
         rooms = RoomManager()
 
@@ -961,7 +1300,7 @@ class RoomManagerTests(TestCase):
             player,
             room.game_manager.hands
         )
-        
+
     def test_room_groups_are_isolated(self):
         rooms = RoomManager()
 

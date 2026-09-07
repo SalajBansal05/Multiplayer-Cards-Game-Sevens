@@ -6,6 +6,7 @@ class GameManager:
     def __init__(self):
 
         self.players = []
+        self.players_playing_again = set()
         self.connected = {}
         self.player_tokens = {} # self.player_tokens[player_id] = token
         self.hands = {}
@@ -49,36 +50,82 @@ class GameManager:
         self.connected.pop(player_id, None)
         self.player_tokens.pop(player_id, None)
         self.hands.pop(player_id, None)
+        self.players_playing_again.discard(player_id)
 
         self.disconnect_timeout_expired = True
 
         return True
 
     def add_player(self, token):
-                
         player_id = self.get_player_by_token(token)
+
         if player_id is not None:
             self.connected[player_id] = True
             return player_id
-        
+
         if self.started:
             return None
-        
+
         player_id = None
-        for i in range(1,5):
+
+        for i in range(1, 7):
             pid = f"Player {i}"
+
             if pid not in self.players:
                 self.players.append(pid)
                 player_id = pid
                 self.player_tokens[player_id] = token
                 self.connected[player_id] = True
                 break
-                        
-        if len(self.players) == 4 and not self.started and not self.game_ended:
-            self.hands, self.current_turn = deal_cards(self.players)
-            self.started = True
 
         return player_id
+    
+    def start_game(self):
+        if self.started:
+            return False
+
+        if self.game_ended or self.winner:
+            if len(self.players_playing_again) < 2:
+                return False
+
+            self.players = [
+                player for player in self.players
+                if player in self.players_playing_again
+            ]
+
+            self.connected = {
+                player: self.connected[player]
+                for player in self.players
+            }
+
+            self.player_tokens = {
+                player: self.player_tokens[player]
+                for player in self.players
+            }
+
+            self.players_playing_again.clear()
+
+        if len(self.players) < 2 or len(self.players) > 6:
+            return False
+
+        self.piles = {
+            "hearts": {"low": None, "high": None},
+            "spades": {"low": None, "high": None},
+            "diamonds": {"low": None, "high": None},
+            "clubs": {"low": None, "high": None},
+        }
+
+        self.hands, self.current_turn = deal_cards(self.players)
+
+        self.winner = None
+        self.started = True
+        self.paused = False
+        self.disconnected_player = None
+        self.disconnect_timeout_expired = False
+        self.game_ended = False
+        self.final_scores = None
+
+        return True
 
     def remove_player(self, player_id):
 
@@ -246,6 +293,17 @@ class GameManager:
             )
             scores[player_id] = score
         return scores
+    
+    def play_again(self, player_id):
+        if self.started:
+            return False
+
+        if player_id not in self.players:
+            return False
+
+        self.players_playing_again.add(player_id)
+
+        return True
 
     def reset_game(self):
         self.piles = {
