@@ -2,6 +2,8 @@ import './App.css';
 import {useEffect, useState} from "react"
 import Hand from './components/Hand';
 import Table from './components/Table';
+import Notification from "./components/Notification";
+import HowToPlay from "./components/HowToPlay";
 
 function generateUUID() {
   const bytes = new Uint8Array(16);
@@ -46,12 +48,24 @@ function App() {
     clubs: {low:null, high: null},
   });
 
-  const [screen, setScreen] = useState("lobby");
-  const [roomCode, setRoomCode] = useState("");
+  const [screen, setScreen] = useState(() => {
+    return localStorage.getItem("active_room") ? "game" : "lobby";
+  });
+
+  const [roomCode, setRoomCode] = useState(() => {
+    return localStorage.getItem("active_room") || "";
+  });
   const [roomInput, setRoomInput] = useState("");
   const [error, setError] = useState("");
   const [gameStarted, setGameStarted] = useState(false);
   const [host, setHost] = useState(null);
+  const [showRules, setShowRules] = useState(false);
+
+  const [displayName, setDisplayName] = useState(
+    localStorage.getItem("display_name") || ""
+  );
+
+  const [playerNames, setPlayerNames] = useState({});
 
   const [paused, setPaused] = useState(false);
   const [disconnectedPlayer, setDisconnectedPlayer] = useState(null);
@@ -115,6 +129,34 @@ function App() {
     } catch (error) {
       console.error(error);
       setError("Could not connect to the server.");
+    }
+  }
+
+  function getDisplayName(player) {
+    return playerNames[player] || player;
+  }
+
+  async function copyRoomCode() {
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(roomCode);
+      } else {
+        const textArea = document.createElement("textarea");
+        textArea.value = roomCode;
+
+        textArea.style.position = "fixed";
+        textArea.style.opacity = "0";
+
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textArea);
+      }
+
+      setError("Room code copied.");
+    } catch (error) {
+      console.error(error);
+      setError("Could not copy room code.");
     }
   }
 
@@ -185,13 +227,20 @@ function App() {
   }
 
   useEffect(() => {
-    const savedRoom = localStorage.getItem("active_room");
+    if (!error) return;
 
-    if (savedRoom) {
-      setRoomCode(savedRoom);
-      setScreen("game");
+    const timer = setTimeout(() => {
+      setError("");
+    }, 3500);
+
+    return () => clearTimeout(timer);
+  }, [error]);
+
+  useEffect(() => {
+    if (displayName.trim()) {
+      localStorage.setItem("display_name", displayName.trim());
     }
-  }, []);
+  }, [displayName]);
 
   useEffect(() => {
     if (screen !== "game" || !roomCode) {
@@ -200,8 +249,10 @@ function App() {
 
     const playerToken = getPlayerToken();
 
+    const encodedName = encodeURIComponent(displayName.trim());
+
     const ws = new WebSocket(
-      `ws://${window.location.hostname}:8000/ws/game/${roomCode}/?token=${playerToken}`
+      `ws://${window.location.hostname}:8000/ws/game/${roomCode}/?token=${playerToken}&name=${encodedName}`
     );
 
     ws.onopen = () => {
@@ -263,6 +314,10 @@ function App() {
           setScreen("lobby");
           localStorage.removeItem("active_room");
         }
+      }
+
+      if (data.player_names) {
+        setPlayerNames({ ...data.player_names });
       }
 
       if (data.players_playing_again) {
@@ -357,39 +412,153 @@ function App() {
   });
   
   const hasMove = sortedHand.some(card => isPlayable(card));
+  const otherPlayers = players.filter(
+    (player) => player !== playerId
+  );
+
+  const myIndex = players.indexOf(playerId);
+
+  const playersFromMyPerspective =
+    myIndex === -1
+      ? players
+      : [
+          ...players.slice(myIndex),
+          ...players.slice(0, myIndex),
+        ];
+
+  const opponents = playersFromMyPerspective.slice(1);
+
+  const tablePlayerPositions = opponents.map((player, index) => {
+    const opponentCount = opponents.length;
+
+    let angle;
+
+    if (opponentCount === 1) {
+      angle = 270;
+    } else {
+      angle =
+        210 +
+        (120 * index) / (opponentCount - 1);
+    }
+
+    const radians = (angle * Math.PI) / 180;
+
+    const radiusX = 42;
+    const radiusY = 55;
+
+    return {
+      player,
+      left: 50 + radiusX * Math.cos(radians),
+      top: 50 + radiusY * Math.sin(radians),
+    };
+  });
+
 
   if (screen === "lobby") {
     return (
-      <div className="lobby">
-        <h1>Card Game - Sevens</h1>
+      <>
+        <Notification
+          message={error}
+          onClose={() => setError("")}
+        />
 
-        <button onClick={createRoom}>
-          Create Game
-        </button>
-
-        <div>
-          <input
-            type="text"
-            value={roomInput}
-            onChange={(e) => setRoomInput(e.target.value)}
-            placeholder="Room Code"
-            maxLength={6}
-          />
-
-          <button onClick={joinRoom}>
-            Join Game
-          </button>
-        </div>
-
-        {error && (
-          <p>{error}</p>
+        {showRules && (
+          <HowToPlay onClose={() => setShowRules(false)} />
         )}
-      </div>
+
+        <div className="main-lobby">
+          <div className="main-lobby-card">
+
+            <div className="lobby-brand">
+              <div className="lobby-suit">♥</div>
+              <h1>Sevens</h1>
+              <p>Multiplayer Card Game</p>
+            </div>
+
+            <div className="name-section">
+              <label htmlFor="display-name">
+                Display Name
+              </label>
+
+              <input
+                id="display-name"
+                type="text"
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                placeholder="Enter your name"
+                maxLength={20}
+              />
+            </div>
+
+            <button
+              className="primary-lobby-button"
+              onClick={createRoom}
+              disabled={!displayName.trim()}
+            >
+              Create Room
+            </button>
+
+            <div className="lobby-divider">
+              <span>OR</span>
+            </div>
+
+            <div className="join-section">
+              <label htmlFor="room-code">
+                Join an Existing Room
+              </label>
+
+              <div className="join-room-row">
+                <input
+                  id="room-code"
+                  type="text"
+                  value={roomInput}
+                  onChange={(e) =>
+                    setRoomInput(e.target.value.toUpperCase())
+                  }
+                  placeholder="Enter room code"
+                  maxLength={6}
+                />
+
+                <button
+                  className="secondary-lobby-button"
+                  onClick={joinRoom}
+                  disabled={!displayName.trim() || !roomInput.trim()}
+                >
+                  Join
+                </button>
+              </div>
+            </div>
+
+            <div className="lobby-info">
+              <span>2-6 players</span>
+              <span>•</span>
+              <span>Play in real time</span>
+            </div>
+
+            <button
+              className="how-to-play-link"
+              onClick={() => setShowRules(true)}
+            >
+              <span className="info-icon">i</span>
+              How to Play
+            </button>
+
+          </div>
+        </div>
+      </>
     );
   }
 
   return (
     <>
+    <Notification
+      message={error}
+      onClose={() => setError("")}
+    />
+
+    {showRules && (
+      <HowToPlay onClose={() => setShowRules(false)} />
+    )}
       <div className="table-layout">
 
         {/* =====================================================
@@ -397,21 +566,47 @@ function App() {
             ===================================================== */}
 
         <header className="game-header">
-          <h1>Card Game - Sevens</h1>
+
+          <div className="game-title-row">
+
+            <div className="game-brand-mark">
+              <span className="game-brand-suit">♥</span>
+
+              <div className="game-brand-text">
+                <span className="game-brand-title">Sevens</span>
+                <span className="game-brand-subtitle">
+                  CARD GAME
+                </span>
+              </div>
+            </div>
+
+            <button
+              className="rules-info-button"
+              onClick={() => setShowRules(true)}
+              aria-label="How to Play"
+              title="How to Play"
+            >
+              i
+            </button>
+
+          </div>
 
           <div className="room-info">
-            <p>
-              <strong>Room Code:</strong> {roomCode}
-            </p>
 
-            <p>
-              <strong>Host:</strong> {host}
-            </p>
+            <div className="room-meta">
+              <span className="room-meta-label">ROOM</span>
+              <span className="room-meta-value">{roomCode}</span>
+            </div>
 
-            <p>
-              <strong>You are:</strong> {playerId}
-            </p>
+            <div className="room-meta">
+              <span className="room-meta-label">HOST</span>
+              <span className="room-meta-value">
+                {getDisplayName(host)}
+              </span>
+            </div>
+
           </div>
+
         </header>
 
 
@@ -420,40 +615,160 @@ function App() {
             ===================================================== */}
 
         {!gameStarted && !gameEnded && !winner && (
-          <div className="game-status">
+          <div className="room-lobby-overlay">
+            <div className="room-lobby-card">
 
-            <h2>Waiting for host to start the game</h2>
+              <div className="room-lobby-brand">
+                <div className="room-lobby-suit">♥</div>
+                <h2>Game Lobby</h2>
+                <p>Waiting for players to join</p>
+              </div>
 
-            <p>
-              {players.length} / 6 players in room
-            </p>
+              <div className="room-code-section">
+                <span className="room-code-label">ROOM CODE</span>
 
-            {players.length < 2 && (
-              <p>
-                At least 2 players are required to start.
-              </p>
-            )}
+                <div className="room-code-row">
+                  <span className="room-code-value">
+                    {roomCode}
+                  </span>
 
-            {players.length >= 2 && playerId !== host && (
-              <p>
-                Waiting for the host to start the game...
-              </p>
-            )}
+                  <button
+                    className="copy-room-button"
+                    onClick={copyRoomCode}
+                  >
+                    Copy
+                  </button>
+                </div>
 
-            <div className="lobby-buttons">
+                <span className="room-code-hint">
+                  Share this code with your friends
+                </span>
+              </div>
 
-              {playerId === host && players.length >= 2 && (
-                <button onClick={startGame}>
-                  Start Game
-                </button>
-              )}
+              <div className="room-lobby-section">
 
-              <button onClick={leaveGame}>
-                Leave Game
+                <div className="room-lobby-section-header">
+                  <h3>Players</h3>
+                  <span>{players.length} / 6</span>
+                </div>
+
+                <div className="room-player-list">
+
+                  {players.map((player) => (
+                    <div
+                      key={player}
+                      className={
+                        player === playerId
+                          ? "room-player current"
+                          : "room-player"
+                      }
+                    >
+
+                      <div className="room-player-left">
+
+                        <div className="room-player-avatar">
+                          {getDisplayName(player).charAt(0).toUpperCase()}
+                        </div>
+
+                        <span className="room-player-name">
+                          {getDisplayName(player)}
+                        </span>
+
+                      </div>
+
+                      <div className="room-player-right">
+
+                        {player === host && (
+                          <span className="host-badge">
+                            HOST
+                          </span>
+                        )}
+
+                        {player === playerId && (
+                          <span className="you-badge">
+                            YOU
+                          </span>
+                        )}
+
+                      </div>
+
+                    </div>
+                  ))}
+
+                  {Array.from({
+                    length: Math.max(0, 6 - players.length)
+                  }).map((_, index) => (
+                    <div
+                      key={`empty-${index}`}
+                      className="room-player empty"
+                    >
+                      <div className="room-player-left">
+
+                        <div className="room-player-avatar empty-avatar">
+                          +
+                        </div>
+
+                        <span className="room-player-name empty-name">
+                          Waiting for player...
+                        </span>
+
+                      </div>
+                    </div>
+                  ))}
+
+                </div>
+
+              </div>
+
+              <div className="room-lobby-status">
+
+                {players.length < 2 ? (
+                  <>
+                    <div className="status-dot waiting"></div>
+                    <span>Waiting for another player</span>
+                  </>
+                ) : playerId === host ? (
+                  <>
+                    <div className="status-dot ready"></div>
+                    <span>You're ready to start</span>
+                  </>
+                ) : (
+                  <>
+                    <div className="status-dot waiting"></div>
+                    <span>Waiting for the host to start</span>
+                  </>
+                )}
+
+              </div>
+
+              <button
+                className="room-how-to-play"
+                onClick={() => setShowRules(true)}
+              >
+                How to Play
               </button>
 
-            </div>
+              <div className="room-lobby-actions">
 
+                {playerId === host && players.length >= 2 && (
+                  <button
+                    className="primary-lobby-button"
+                    onClick={startGame}
+                  >
+                    Start Game
+                  </button>
+                )}
+
+                <button
+                  className="secondary-lobby-button leave-room-button"
+                  onClick={leaveGame}
+                >
+                  Leave Room
+                </button>
+
+              </div>
+
+            </div>
           </div>
         )}
 
@@ -463,37 +778,48 @@ function App() {
             ===================================================== */}
 
         {paused && (
-          <div className="game-status">
+          <div className="pause-overlay">
+            <div className="pause-card">
 
-            <h2>Game Paused</h2>
+              <div className="pause-icon">
+                ⏸
+              </div>
 
-            <p>
-              {disconnectedPlayer} has disconnected.
-            </p>
+              <h2>Game Paused</h2>
 
-            {!timeoutExpired && (
-              <p>
-                Waiting for reconnection...
+              <p className="pause-message">
+                {getDisplayName(disconnectedPlayer)} has disconnected.
               </p>
-            )}
 
-            {timeoutExpired && (
-              <p>
-                {disconnectedPlayer} did not reconnect in time.
-              </p>
-            )}
+              {!timeoutExpired ? (
+                <p className="pause-status">
+                  Waiting for reconnection...
+                </p>
+              ) : (
+                <>
+                  <p className="pause-status">
+                    {getDisplayName(disconnectedPlayer)}
+                    {" "}did not reconnect in time.
+                  </p>
 
-          </div>
-        )}
+                  {playerId === host && (
+                    <button
+                      className="pause-end-button"
+                      onClick={endGame}
+                    >
+                      End Game
+                    </button>
+                  )}
 
+                  {playerId !== host && (
+                    <p className="pause-status">
+                      Waiting for the host to end the game.
+                    </p>
+                  )}
+                </>
+              )}
 
-        {paused && timeoutExpired && playerId === host && (
-          <div className="game-status">
-
-            <button onClick={endGame}>
-              End Game
-            </button>
-
+            </div>
           </div>
         )}
 
@@ -511,16 +837,21 @@ function App() {
 
               {winner && (
                 <p>
-                  {winner} won the game!
+                  {getDisplayName(winner)} won the game!
                 </p>
               )}
 
               <div className="scores">
 
+                <p className="result-subtitle">
+                  Final Scores
+                </p>
+                <hr></hr>
+
                 {Object.entries(scores).map(
                   ([player, score]) => (
                     <p key={player}>
-                      {player}: {score}
+                      {getDisplayName(player)}: {score}
                     </p>
                   )
                 )}
@@ -541,11 +872,11 @@ function App() {
 
                 {players.map((player) => (
                   <p key={player}>
-                    {player}
+                    {getDisplayName(player)}
                     {" "}
                     {playersPlayingAgain.includes(player)
-                      ? "✓ Ready"
-                      : "Waiting"}
+                      ? ": Ready"
+                      : ": Waiting"}
                   </p>
                 ))}
 
@@ -556,23 +887,20 @@ function App() {
                   PLAY AGAIN
                   --------------------------------------------- */}
 
-              {!playersPlayingAgain.includes(playerId) ? (
-                <button onClick={rematch}>
+              <div className="result-actions">
+
+              {!playersPlayingAgain.includes(playerId) && (
+                <button
+                  className="result-primary-button"
+                  onClick={rematch}
+                >
                   Play Again
                 </button>
-              ) : (
-                <p>
-                  You are ready for the next game.
-                </p>
               )}
-
-
-              {/* ---------------------------------------------
-                  HOST START
-                  --------------------------------------------- */}
 
               {playerId === host && (
                 <button
+                  className="result-primary-button"
                   onClick={startGame}
                   disabled={playersPlayingAgain.length < 2}
                 >
@@ -580,10 +908,20 @@ function App() {
                 </button>
               )}
 
-
-              <button onClick={leaveGame}>
+              <button
+                className="result-secondary-button"
+                onClick={leaveGame}
+              >
                 Leave Room
               </button>
+
+            </div>
+
+            {playersPlayingAgain.includes(playerId) && (
+              <p>
+                You are ready for the next game.
+              </p>
+            )}
 
             </div>
 
@@ -600,26 +938,31 @@ function App() {
 
             <div className="winner-box">
 
-              <h2>{winner} wins!</h2>
+              <div className="result-suit">♥</div>
+
+                <h2>{getDisplayName(winner)} wins!</h2>
+
 
               <hr />
 
               <div className="score-list">
 
-                <h3>Final Scores:</h3>
+                <p className="result-subtitle">
+                  Final Scores:
+                </p>
 
                 {Object.entries(scores).map(
                   ([pId, score]) => (
                     <p
                       key={pId}
-                      style={{
-                        color:
-                          pId === winner
-                            ? "green"
-                            : "black"
-                      }}
+                      className={
+                        pId === winner
+                          ? "winner-score"
+                          : "normal-score"
+                      }
                     >
-                      {pId}: <strong>{score}</strong>
+                      {getDisplayName(pId)}:
+                      <strong>{score}</strong>
                     </p>
                   )
                 )}
@@ -640,49 +983,51 @@ function App() {
 
                 {players.map((player) => (
                   <p key={player}>
-                    {player}
+                    {getDisplayName(player)}
                     {" "}
                     {playersPlayingAgain.includes(player)
-                      ? "✓ Ready"
-                      : "Waiting"}
+                      ? ": Ready"
+                      : ": Waiting"}
                   </p>
                 ))}
 
               </div>
 
 
-              {!playersPlayingAgain.includes(playerId) ? (
+              <div className="result-actions">
+
+                {!playersPlayingAgain.includes(playerId) && (
+                  <button
+                    className="result-primary-button"
+                    onClick={rematch}
+                  >
+                    Play Again
+                  </button>
+                )}
+
+                {playerId === host && (
+                  <button
+                    className="result-primary-button"
+                    onClick={startGame}
+                    disabled={playersPlayingAgain.length < 2}
+                  >
+                    Start Game
+                  </button>
+                )}
+
                 <button
-                  onClick={rematch}
-                  style={{ marginTop: "20px" }}
+                  className="result-secondary-button"
+                  onClick={leaveGame}
                 >
-                  Play Again
+                  Leave Room
                 </button>
-              ) : (
+
+              </div>
+
+              {playersPlayingAgain.includes(playerId) && (
                 <p>
                   You are ready for the next game.
                 </p>
-              )}
-
-
-              {playerId === host && (
-                <button
-                  onClick={startGame}
-                  disabled={playersPlayingAgain.length < 2}
-                  style={{ marginTop: "10px" }}
-                >
-                  Start Game
-                </button>
-              )}
-
-
-              {!timeoutExpired && (
-                <button
-                  onClick={leaveGame}
-                  style={{ marginTop: "10px" }}
-                >
-                  Leave Game
-                </button>
               )}
 
             </div>
@@ -696,131 +1041,91 @@ function App() {
             ===================================================== */}
 
         {gameStarted && (
-          <div className="players-area">
+  <div className="game-board">
 
-            <h2>Players</h2>
+      <div className="table-stage">
 
-            <div className="players-list">
-
-              {players
-                .filter((player) => player !== playerId)
-                .map((player) => (
-                  <div
-                    key={player}
-                    className={
-                      currentTurn === player
-                        ? "player active"
-                        : "player"
-                    }
-                  >
-                    <span className="player-name">
-                      {player}
-                    </span>
-
-                    <span className="player-card-count">
-                      {counts[player] || 0} cards
-                    </span>
-                  </div>
-                ))}
-
-            </div>
-
-
-            <div className="table-center">
-
-              <Table piles={piles} />
-
-            </div>
-
-          </div>
-        )}
-
-
-        {/* =====================================================
-            YOUR HAND / ACTIONS
-            ===================================================== */}
-
-        {gameStarted && (
-          <div
-            className={
-              currentTurn === playerId
-                ? "player bottom active"
-                : "player bottom"
-            }
-          >
-
-            <h3>
-              You ({counts[playerId] || 0})
-            </h3>
-
-            <Hand
-              cards={sortedHand}
-              playCard={playCard}
-              isMyTurn={isMyTurn}
-              isPlayable={isPlayable}
-            />
-
-            <button
-              onClick={passTurn}
-              disabled={!isMyTurn || hasMove}
+        <div className="players-area">
+          {tablePlayerPositions.map(({ player, left, top }) => (
+            <div
+              key={player}
+              className="table-player"
+              style={{
+                left: `${left}%`,
+                top: `${top}%`,
+              }}
             >
-              Pass
-            </button>
+              <div
+                className={
+                  currentTurn === player
+                    ? "table-player-card active"
+                    : "table-player-card"
+                }
+              >
+                <span className="table-player-name">
+                  {getDisplayName(player)}
+                </span>
 
-          </div>
-        )}
+                <span className="table-player-count">
+                  {counts[player] || 0} cards
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
 
+        <div
+          className={
+            currentTurn === playerId
+              ? "current-turn-indicator my-turn"
+              : "current-turn-indicator"
+          }
+        >
+          {currentTurn === playerId
+            ? "Your turn"
+            : `${getDisplayName(currentTurn)}'s turn`}
+        </div>
 
-        {gameStarted && (
-          <h3>
-            Current Turn: {currentTurn}
-          </h3>
-        )}
-
-
-        {/* =====================================================
-            LEAVE GAME
-            ===================================================== */}
-
-        
+        <div className="table-wrapper">
+          <Table piles={piles} />
+        </div>
 
       </div>
 
+      <div
+        className={
+          currentTurn === playerId
+            ? "your-area active"
+            : "your-area"
+        }
+      >
+        <div className="your-player-name">
+          {getDisplayName(playerId)}
 
-      {/* =========================================================
-          RULES
-          ========================================================= */}
+          <span>
+            {counts[playerId] || 0}
+          </span>
+        </div>
 
-      <div className="rules">
+        <Hand
+          cards={sortedHand}
+          playCard={playCard}
+          isMyTurn={isMyTurn}
+          isPlayable={isPlayable}
+        />
 
-        <h2>Rules:</h2>
+        <button
+          className="pass-button"
+          onClick={passTurn}
+          disabled={!isMyTurn || hasMove}
+        >
+          Pass
+        </button>
+      </div>
 
-        <p>
-          1. The player who has the 7 of hearts starts first.
-        </p>
 
-        <p>
-          2. The chance moves in cyclic order and each player
-          has to add a card to any pile, either the next higher
-          card of a suit or the next lower one.
-        </p>
-
-        <p>
-          3. If no such move is possible, players shall pass.
-        </p>
-
-        <p>
-          4. Game is over when a player's hand becomes empty.
-        </p>
-
-        <p>
-          5. Score is calculated as the sum of the values of
-          the cards in each player's hand.
-        </p>
-
-        <p>
-          6. The player with least score wins.
-        </p>
+    </div>
+  )}
 
       </div>
     </>

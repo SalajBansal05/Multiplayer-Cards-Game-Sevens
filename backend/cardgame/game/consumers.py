@@ -91,6 +91,7 @@ class GameConsumer(AsyncWebsocketConsumer):
         )
 
         token = query_params.get("token", [None])[0]
+        name = query_params.get("name", [None])[0]
 
         if token is None:
             await self.accept()
@@ -105,9 +106,7 @@ class GameConsumer(AsyncWebsocketConsumer):
             return
 
         # Join this room through its GameManager.
-        self.player_id = (
-            self.game_room.game_manager.add_player(token)
-        )
+        self.player_id = self.game_room.game_manager.add_player(token, name)
 
         if self.player_id is None:
             await self.accept()
@@ -320,6 +319,7 @@ class GameConsumer(AsyncWebsocketConsumer):
                 "turn": game_manager.current_turn,
                 "player": self.player_id,
                 "players": game_manager.players,
+                "player_names": self.game_room.game_manager.player_names,
                 "players_playing_again": list(game_manager.players_playing_again),
                 "counts": counts,
                 "scores": scores,

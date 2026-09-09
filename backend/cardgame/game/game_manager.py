@@ -6,6 +6,7 @@ class GameManager:
     def __init__(self):
 
         self.players = []
+        self.player_names = {}
         self.players_playing_again = set()
         self.connected = {}
         self.player_tokens = {} # self.player_tokens[player_id] = token
@@ -56,11 +57,17 @@ class GameManager:
 
         return True
 
-    def add_player(self, token):
+    def add_player(self, token, name=None):
+        name = (name or "").strip()
+
         player_id = self.get_player_by_token(token)
 
         if player_id is not None:
             self.connected[player_id] = True
+            self.player_names[player_id] = name or self.player_names.get(
+                player_id,
+                player_id
+            )
             return player_id
 
         if self.started:
@@ -76,6 +83,7 @@ class GameManager:
                 player_id = pid
                 self.player_tokens[player_id] = token
                 self.connected[player_id] = True
+                self.player_names[player_id] = name or player_id
                 break
 
         return player_id
@@ -92,6 +100,11 @@ class GameManager:
                 player for player in self.players
                 if player in self.players_playing_again
             ]
+            
+            self.player_names = {
+                player: self.player_names[player]
+                for player in self.players
+            }
 
             self.connected = {
                 player: self.connected[player]
