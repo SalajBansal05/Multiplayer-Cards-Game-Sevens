@@ -141,7 +141,7 @@ CardGame_Sevens/
 
 ```bash
 git clone https://github.com/SalajBansal05/Multiplayer-Cards-Game-Sevens.git
-cd CardGame_Sevens
+cd Multiplayer-Cards-Game-Sevens
 ```
 
 ### 2. Start the Backend
